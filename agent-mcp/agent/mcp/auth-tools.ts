@@ -45,9 +45,14 @@ export function createAuthTools(onConnected?: () => Promise<void> | void) {
   const pending = new Map<string, Pending>(); // keyed by server key
 
   async function finish(spec: McpServerSpec, code: string): Promise<void> {
-    const p = pending.get(spec.key);
-    if (!p) throw new Error(`No authorization in progress for ${spec.label}. Call connect_service first.`);
-    await p.transport.finishAuth(code); // exchanges code -> tokens, persisted via storage
+    // Prefer the in-flight transport from connect_service. If it's gone (e.g. the
+    // deployed instance restarted between connect and paste), rebuild one: the
+    // PKCE verifier + DCR client registration were persisted to storage, so a
+    // fresh transport/provider can still complete the exchange.
+    const transport =
+      pending.get(spec.key)?.transport ??
+      new StreamableHTTPClientTransport(new URL(spec.url), { authProvider: createProvider(spec) });
+    await transport.finishAuth(code); // exchanges code -> tokens, persisted via storage
     pending.delete(spec.key);
     await onConnected?.(); // tokens now exist -> rebuild client so jira_/notion_/postman_ tools appear
   }

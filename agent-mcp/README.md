@@ -85,11 +85,22 @@ The selector lives in `agent/mcp/storage.ts` and switches automatically on
 
 ## Configuration
 
-Optional environment variables (see `astropods.yml` → `agent.inputs`):
+No OAuth config is required — the platform-injected vars below are resolved
+automatically. The agent also honors a few optional env overrides if you ever
+set them, but they are **not** declared as deploy inputs (nothing to fill in).
 
-| Variable              | Default                               | Purpose                                            |
-|-----------------------|---------------------------------------|----------------------------------------------------|
-| `OAUTH_CALLBACK_PORT` | `8808`                                | Loopback port for the local auto-complete listener |
-| `OAUTH_REDIRECT_URL`  | `http://localhost:8808/oauth/callback`| Registered OAuth redirect URI                      |
-| `OAUTH_STORE_DIR`     | `./.astro-oauth`                      | File token-store dir (local only; ignored if `REDIS_URL` set) |
-| `REDIS_URL`           | injected by `knowledge.cache`         | Token store when deployed (read-only FS)           |
+Platform-injected (deploy):
+
+| Variable                  | Purpose                                                        |
+|---------------------------|----------------------------------------------------------------|
+| `REDIS_URL`               | Token store, from `knowledge.cache` (required; read-only FS).  |
+| `ASTRO_EXTERNAL_AGENT_URL`| Public URL; the OAuth redirect is forged from it when present. |
+| `PORT`                    | `=80` for a frontend deploy; the callback listener binds it.   |
+
+Optional env overrides (defaults shown; rarely needed):
+
+| Variable              | Default                                | Purpose                                            |
+|-----------------------|----------------------------------------|----------------------------------------------------|
+| `OAUTH_REDIRECT_URL`  | forged / `http://localhost:8808/oauth/callback` | Force a specific registered redirect URI. |
+| `OAUTH_CALLBACK_PORT` | `PORT` ?? `8808`                       | Force the callback listener port.                  |
+| `OAUTH_STORE_DIR`     | `./.astro-oauth`                       | File token-store dir (local only; ignored if `REDIS_URL` set). |

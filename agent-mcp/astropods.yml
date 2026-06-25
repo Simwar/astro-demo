@@ -1,34 +1,24 @@
 # yaml-language-server: $schema=https://astropods.com/schema/package.json
 spec: package/v1
-name: agent-mcp
+name: cross-tool-assistant
 meta: {}
 
 agent:
   build:
     context: .
     dockerfile: Dockerfile
-  inputs:
-    - name: OAUTH_CALLBACK_PORT
-      datatype: string
-      secret: false
-      description: >-
-        Loopback port the local OAuth redirect listener binds to. Defaults to
-        8808. Only used for automatic completion during local dev.
-    - name: OAUTH_REDIRECT_URL
-      datatype: string
-      secret: false
-      description: >-
-        Registered OAuth redirect URI. Defaults to
-        http://localhost:8808/oauth/callback, which providers accept and which
-        the in-chat connect_service / complete_connection flow relies on.
-    - name: OAUTH_STORE_DIR
-      datatype: string
-      secret: false
-      description: >-
-        Local-dev only: directory for the file-based OAuth token store when
-        REDIS_URL is absent. Defaults to ./.astro-oauth. When deployed, tokens
-        are stored in Redis (see knowledge.cache) because the container
-        filesystem is read-only.
+  interfaces:
+    # frontend exposes an HTTP endpoint, so Astro injects ASTRO_EXTERNAL_AGENT_URL
+    # and routes the public host to the OAuth callback the agent serves on :80 —
+    # enabling hands-free OAuth completion on a deployed agent. messaging is the
+    # chat interface.
+    frontend: true
+    messaging: true
+  # No OAuth inputs needed: the redirect URL is forged from
+  # ASTRO_EXTERNAL_AGENT_URL (deploy) or localhost (dev), the callback port
+  # honors the injected PORT, and tokens persist in Redis (knowledge.cache).
+  # The code still honors OAUTH_REDIRECT_URL / OAUTH_CALLBACK_PORT /
+  # OAUTH_STORE_DIR via env if ever set, but they aren't prompted at deploy.
 
 models:
   anthropic:
@@ -44,3 +34,7 @@ dev:
   interfaces:
     messaging:
       adapters: [web]
+    # Local frontend port (prod always uses :80). The agent serves the OAuth
+    # callback here; the playground chat stays on its own port.
+    frontend:
+      port: 8808
