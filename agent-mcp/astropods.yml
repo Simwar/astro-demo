@@ -1,0 +1,46 @@
+# yaml-language-server: $schema=https://astropods.com/schema/package.json
+spec: package/v1
+name: agent-mcp
+meta: {}
+
+agent:
+  build:
+    context: .
+    dockerfile: Dockerfile
+  inputs:
+    - name: OAUTH_CALLBACK_PORT
+      datatype: string
+      secret: false
+      description: >-
+        Loopback port the local OAuth redirect listener binds to. Defaults to
+        8808. Only used for automatic completion during local dev.
+    - name: OAUTH_REDIRECT_URL
+      datatype: string
+      secret: false
+      description: >-
+        Registered OAuth redirect URI. Defaults to
+        http://localhost:8808/oauth/callback, which providers accept and which
+        the in-chat connect_service / complete_connection flow relies on.
+    - name: OAUTH_STORE_DIR
+      datatype: string
+      secret: false
+      description: >-
+        Local-dev only: directory for the file-based OAuth token store when
+        REDIS_URL is absent. Defaults to ./.astro-oauth. When deployed, tokens
+        are stored in Redis (see knowledge.cache) because the container
+        filesystem is read-only.
+
+models:
+  anthropic:
+    provider: anthropic
+
+# Writable token store for OAuth credentials. The deployed container FS is
+# read-only, so tokens (and refresh tokens) persist in Redis. Injects REDIS_URL.
+knowledge:
+  cache:
+    provider: redis
+
+dev:
+  interfaces:
+    messaging:
+      adapters: [web]

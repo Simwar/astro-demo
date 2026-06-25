@@ -1,0 +1,31 @@
+{
+  "name": "agent-mcp",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Describe what your agent does in one sentence.",
+  "scripts": {
+    "dev": "bun --watch agent/index.ts",
+    "dev:ingest": "bun --watch ingestion/index.ts",
+    "start": "bun agent/index.ts",
+    "ingest": "bun ingestion/index.ts",
+    "authorize": "bun agent/authorize.ts"
+  },
+  "main": "./agent/index.ts",
+  "dependencies": {
+    "@astropods/adapter-mastra": "latest",
+    "@mastra/core": "latest",
+    "@mastra/libsql": "latest",
+    "@mastra/mcp": "^1.12.0",
+    "@mastra/memory": "latest",
+    "@mastra/observability": "latest",
+    "@mastra/otel-exporter": "latest",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@opentelemetry/exporter-trace-otlp-proto": "latest",
+    "open": "^11.0.0",
+    "redis": "^6.0.1"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.1.14",
+    "typescript": "^5.9.3"
+  }
+}
