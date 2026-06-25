@@ -106,6 +106,12 @@ export function createAuthTools(onConnected?: () => Promise<void> | void) {
         return { status: 'already_connected', service };
       }
 
+      // Force a fresh dynamic client registration so the DCR redirect_uri matches
+      // the current REDIRECT_URL. A client persisted from an earlier redirect
+      // (e.g. localhost, before the agent was exposed) would otherwise be reused
+      // and rejected with "Invalid redirect_uri for OAuth client".
+      await provider.clear();
+
       const transport = new StreamableHTTPClientTransport(new URL(spec.url), { authProvider: provider });
       const client = new Client({ name: 'agent-mcp-connect', version: '0.1.0' });
       try {
