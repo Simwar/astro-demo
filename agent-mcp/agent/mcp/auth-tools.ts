@@ -23,8 +23,7 @@ import { z } from 'zod';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js';
-import type { MCPClient } from '@mastra/mcp';
-import { CALLBACK_PORT, MCP_SERVERS, createProvider, type McpServerSpec } from './servers';
+import { CALLBACK_PATH, CALLBACK_PORT, MCP_SERVERS, REDIRECT_URL, createProvider, type McpServerSpec } from './servers';
 
 interface Pending {
   spec: McpServerSpec;
@@ -39,11 +38,10 @@ function specOf(service: string): McpServerSpec {
 }
 
 /**
- * @param mcp        the agent's MCPClient (so we can reconnect a server once authorized)
- * @param onConnected called after a successful connection; the agent uses this to
- *                    refresh its dynamic tool set so the new server is usable at once
+ * @param onConnected called after a successful connection; the agent rebuilds its
+ *                    MCP client + tool snapshot here so the new server is usable at once
  */
-export function createAuthTools(mcp: MCPClient, onConnected?: () => Promise<void> | void) {
+export function createAuthTools(onConnected?: () => Promise<void> | void) {
   const pending = new Map<string, Pending>(); // keyed by server key
 
   async function finish(spec: McpServerSpec, code: string): Promise<void> {
@@ -51,8 +49,7 @@ export function createAuthTools(mcp: MCPClient, onConnected?: () => Promise<void
     if (!p) throw new Error(`No authorization in progress for ${spec.label}. Call connect_service first.`);
     await p.transport.finishAuth(code); // exchanges code -> tokens, persisted via storage
     pending.delete(spec.key);
-    await mcp.reconnectServer(spec.key); // connect the server now that tokens exist
-    await onConnected?.(); // refresh the agent's tool snapshot so jira_/notion_/postman_ tools appear
+    await onConnected?.(); // tokens now exist -> rebuild client so jira_/notion_/postman_ tools appear
   }
 
   // Best-effort loopback listener for local dev. In deployment it never
@@ -62,7 +59,9 @@ export function createAuthTools(mcp: MCPClient, onConnected?: () => Promise<void
       port: CALLBACK_PORT,
       fetch: async (req) => {
         const url = new URL(req.url);
-        if (url.pathname !== '/oauth/callback') return new Response('Not found', { status: 404 });
+        // Liveness/root: keep non-callback paths 200 so a frontend-ingress
+        // health check on this port passes.
+        if (url.pathname !== CALLBACK_PATH) return new Response('agent-mcp oauth callback', { status: 200 });
         const code = url.searchParams.get('code');
         const state = url.searchParams.get('state');
         const error = url.searchParams.get('error');
@@ -78,6 +77,7 @@ export function createAuthTools(mcp: MCPClient, onConnected?: () => Promise<void
         }
       },
     });
+    console.log(`[agent-mcp] OAuth callback listening on :${CALLBACK_PORT}; redirect_uri=${REDIRECT_URL}`);
   } catch {
     // Port unavailable (e.g. taken by `bun run authorize`, or unsupported env).
     // The paste flow still works.

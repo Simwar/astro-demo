@@ -23,7 +23,8 @@ import { LibSQLStore } from '@mastra/libsql';
 import { Observability } from '@mastra/observability';
 import { OtelExporter } from '@mastra/otel-exporter';
 import { serve } from '@astropods/adapter-mastra';
-import { buildMcpClient, MCP_SERVERS } from './mcp/servers';
+import type { MCPClient } from '@mastra/mcp';
+import { buildMcpClient, authorizedServers } from './mcp/servers';
 import { createAuthTools } from './mcp/auth-tools';
 import { oauthStorageInfo } from './mcp/storage';
 
@@ -75,34 +76,41 @@ const observability = new Observability({
 const storage = oauthStorageInfo();
 (storage.durable ? console.log : console.warn)(`[agent-mcp] OAuth token store: ${storage.detail}`);
 
-const mcp = buildMcpClient();
+// The MCP client holds only authorized servers, so boot makes no doomed
+// unauthenticated connections (no "Authorization required…" wall). It's rebuilt
+// when a service is connected. `mcpTools` is the snapshot the agent's dynamic
+// `tools` reads, so newly-connected servers become usable without a restart.
+let mcp: MCPClient | null = null;
+let clientSeq = 0;
+let mcpTools: Awaited<ReturnType<MCPClient['listToolsWithErrors']>>['tools'] = {};
 
-// Mutable snapshot of the MCP tools. The agent's `tools` is dynamic (below) and
-// reads this, so connecting a service mid-conversation makes its tools usable
-// immediately — no restart. (A freshly-constructed Agent otherwise freezes the
-// tool set at boot, when unauthorized servers contribute nothing.)
-let mcpTools: Awaited<ReturnType<typeof mcp.listToolsWithErrors>>['tools'] = {};
 async function refreshMcpTools(): Promise<void> {
-  const { tools, errors } = await mcp.listToolsWithErrors();
-  mcpTools = tools;
-  const loaded = MCP_SERVERS.filter((s) => !errors[s.key]).map((s) => s.label);
-  console.log(
-    loaded.length
-      ? `[agent-mcp] MCP tools ready: ${loaded.join(', ')} (${Object.keys(tools).length} tools)`
-      : '[agent-mcp] No MCP servers connected yet.',
-  );
-  for (const key of Object.keys(errors)) {
-    console.warn(`[agent-mcp] ${key} not connected — use the connect_service tool to authorize it.`);
+  const specs = await authorizedServers();
+  const previous = mcp;
+  if (specs.length) {
+    mcp = buildMcpClient(specs, `agent-mcp-clients-${++clientSeq}`);
+    const { tools, errors } = await mcp.listToolsWithErrors();
+    mcpTools = tools;
+    const loaded = specs.filter((s) => !errors[s.key]).map((s) => s.label);
+    console.log(`[agent-mcp] MCP tools ready: ${loaded.join(', ') || 'none'} (${Object.keys(tools).length} tools)`);
+    for (const key of Object.keys(errors)) {
+      console.warn(`[agent-mcp] ${key} failed to load despite tokens — re-authorize with connect_service.`);
+    }
+  } else {
+    mcp = null;
+    mcpTools = {};
+    console.log('[agent-mcp] No services connected yet — use connect_service to authorize Jira, Notion, or Postman.');
   }
+  if (previous) await previous.disconnect().catch(() => {});
 }
 await refreshMcpTools();
 
 // In-chat OAuth: connect_service / complete_connection / list_connections.
 // These let the agent authorize a service from inside the conversation, which
 // is the only option once deployed (headless, read-only FS — no CLI bootstrap).
-// On a successful connection the tool set is refreshed so the new server's
-// tools become callable right away.
-const authTools = createAuthTools(mcp, refreshMcpTools);
+// On a successful connection the client + tool snapshot are rebuilt so the new
+// server's tools become callable right away.
+const authTools = createAuthTools(refreshMcpTools);
 
 const instructions = `You are agent-mcp, an assistant that answers questions by reading across three connected systems via their MCP tools:
 

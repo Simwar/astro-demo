@@ -54,22 +54,36 @@ export class FileOAuthStorage implements OAuthStorage {
   }
 }
 
-/** Redis-backed store, namespaced per server key. Connects lazily. */
-export class RedisOAuthStorage implements OAuthStorage {
-  private readonly client: ReturnType<typeof createClient>;
-  private readonly ready: Promise<unknown>;
+// One shared connection per URL: many providers (and client rebuilds) reuse it
+// instead of each opening — and leaking — its own socket.
+let sharedClient: ReturnType<typeof createClient> | null = null;
+let sharedReady: Promise<unknown> | null = null;
 
-  constructor(private readonly prefix: string, url: string) {
-    this.client = createClient({
+function sharedRedis(url: string): { client: ReturnType<typeof createClient>; ready: Promise<unknown> } {
+  if (!sharedClient) {
+    sharedClient = createClient({
       url,
       // Survive transient drops (the agent may outlive a Redis blip). node-redis
       // queues commands while reconnecting, so get/set just wait rather than fail.
       socket: { reconnectStrategy: (retries) => Math.min(retries * 200, 3000) },
     });
-    this.client.on('error', (err) => console.error('[oauth-storage] redis error:', err));
-    this.ready = this.client.connect().catch((err) => {
+    sharedClient.on('error', (err) => console.error('[oauth-storage] redis error:', err));
+    sharedReady = sharedClient.connect().catch((err) => {
       console.error('[oauth-storage] redis connect failed:', err);
     });
+  }
+  return { client: sharedClient, ready: sharedReady! };
+}
+
+/** Redis-backed store, namespaced per server key. Connects lazily and shared. */
+export class RedisOAuthStorage implements OAuthStorage {
+  private readonly client: ReturnType<typeof createClient>;
+  private readonly ready: Promise<unknown>;
+
+  constructor(private readonly prefix: string, url: string) {
+    const shared = sharedRedis(url);
+    this.client = shared.client;
+    this.ready = shared.ready;
   }
 
   private k(key: string): string {
