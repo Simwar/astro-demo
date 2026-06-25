@@ -53,6 +53,13 @@ export interface McpServerSpec {
   label: string;
   /** Official hosted MCP endpoint (Streamable HTTP, SSE fallback). */
   url: string;
+  /**
+   * Override the OAuth 2.0 resource indicator (RFC 8707). Notion's PRM at the
+   * `/mcp` path advertises `resource=https://mcp.notion.com/mcp`, but its
+   * authorization server rejects that with `invalid_target` and only accepts
+   * the origin. Pin the origin here so the authorize/token requests succeed.
+   */
+  resourceUrl?: string;
 }
 
 export const MCP_SERVERS: McpServerSpec[] = [
@@ -60,7 +67,7 @@ export const MCP_SERVERS: McpServerSpec[] = [
   // `/v1/mcp` (without authv2) is the generic/API-token endpoint and does not
   // advertise OAuth discovery to the client.
   { key: 'jira', label: 'Jira (Atlassian)', url: 'https://mcp.atlassian.com/v1/mcp/authv2' },
-  { key: 'notion', label: 'Notion', url: 'https://mcp.notion.com/mcp' },
+  { key: 'notion', label: 'Notion', url: 'https://mcp.notion.com/mcp', resourceUrl: 'https://mcp.notion.com' },
   { key: 'postman', label: 'Postman', url: 'https://mcp.postman.com/mcp' },
 ];
 
@@ -79,12 +86,22 @@ export function createProvider(
   spec: McpServerSpec,
   onRedirectToAuthorization?: (url: URL) => void | Promise<void>,
 ): MCPOAuthClientProvider {
-  return new MCPOAuthClientProvider({
+  const provider = new MCPOAuthClientProvider({
     redirectUrl: REDIRECT_URL,
     clientMetadata: clientMetadata(),
     storage: makeOAuthStorage(spec.key),
     onRedirectToAuthorization,
   });
+  // The MCP SDK calls validateResourceURL (when present) to choose the RFC 8707
+  // resource indicator. Pin it for servers whose auth server disagrees with
+  // their own PRM (see resourceUrl above).
+  if (spec.resourceUrl) {
+    const resource = new URL(spec.resourceUrl);
+    (provider as unknown as {
+      validateResourceURL: (serverUrl: string | URL, resource?: string) => Promise<URL | undefined>;
+    }).validateResourceURL = async () => resource;
+  }
+  return provider;
 }
 
 /** The servers that currently hold valid (or refreshable) OAuth tokens. */
