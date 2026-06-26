@@ -16,48 +16,50 @@
  *   GRPC_SERVER_ADDR - injected by Astro messaging service
  */
 
-import { Agent } from '@mastra/core/agent';
-import { Mastra } from '@mastra/core/mastra';
-import { Memory } from '@mastra/memory';
-import { LibSQLStore } from '@mastra/libsql';
-import { Observability } from '@mastra/observability';
-import { OtelExporter } from '@mastra/otel-exporter';
-import { serve } from '@astropods/adapter-mastra';
-import type { MCPClient } from '@mastra/mcp';
-import { buildMcpClient, authorizedServers } from './mcp/servers';
-import { createAuthTools } from './mcp/auth-tools';
-import { oauthStorageInfo } from './mcp/storage';
+import { Agent } from "@mastra/core/agent";
+import { Mastra } from "@mastra/core/mastra";
+import { Memory } from "@mastra/memory";
+import { LibSQLStore } from "@mastra/libsql";
+import { Observability } from "@mastra/observability";
+import { OtelExporter } from "@mastra/otel-exporter";
+import { serve } from "@astropods/adapter-mastra";
+import type { MCPClient } from "@mastra/mcp";
+import { buildMcpClient, authorizedServers } from "./mcp/servers";
+import { createAuthTools } from "./mcp/auth-tools";
+import { oauthStorageInfo } from "./mcp/storage";
+import { createOpenAI } from "@ai-sdk/openai";
 
 const memory = new Memory({
   storage: new LibSQLStore({
-    id: 'memory',
-    url: ':memory:',
+    id: "memory",
+    url: ":memory:",
   }),
 });
 
 function resolveOtlpTracesEndpoint(): string {
-  const raw = process.env.OTEL_EXPORTER_OTLP_ENDPOINT || 'http://localhost:4318';
+  const raw =
+    process.env.OTEL_EXPORTER_OTLP_ENDPOINT || "http://localhost:4318";
   try {
     const url = new URL(raw);
-    if (!url.pathname || url.pathname === '/') {
-      url.pathname = '/v1/traces';
+    if (!url.pathname || url.pathname === "/") {
+      url.pathname = "/v1/traces";
     }
     return url.toString();
   } catch {
-    return `${raw.replace(/\/+$/, '')}/v1/traces`;
+    return `${raw.replace(/\/+$/, "")}/v1/traces`;
   }
 }
 
 const observability = new Observability({
   configs: {
     otel: {
-      serviceName: 'agent-mcp',
+      serviceName: "agent-mcp",
       exporters: [
         new OtelExporter({
           provider: {
             custom: {
               endpoint: resolveOtlpTracesEndpoint(),
-              protocol: 'http/protobuf',
+              protocol: "http/protobuf",
             },
           },
         }),
@@ -74,7 +76,9 @@ const observability = new Observability({
 // (the container FS is read-only); a `file` backend here means tokens would be
 // lost on restart — surfaced loudly so it's caught in `ast project logs`.
 const storage = oauthStorageInfo();
-(storage.durable ? console.log : console.warn)(`[agent-mcp] OAuth token store: ${storage.detail}`);
+(storage.durable ? console.log : console.warn)(
+  `[agent-mcp] OAuth token store: ${storage.detail}`,
+);
 
 // The MCP client holds only authorized servers, so boot makes no doomed
 // unauthenticated connections (no "Authorization required…" wall). It's rebuilt
@@ -82,7 +86,8 @@ const storage = oauthStorageInfo();
 // `tools` reads, so newly-connected servers become usable without a restart.
 let mcp: MCPClient | null = null;
 let clientSeq = 0;
-let mcpTools: Awaited<ReturnType<MCPClient['listToolsWithErrors']>>['tools'] = {};
+let mcpTools: Awaited<ReturnType<MCPClient["listToolsWithErrors"]>>["tools"] =
+  {};
 
 async function refreshMcpTools(): Promise<void> {
   const specs = await authorizedServers();
@@ -92,14 +97,20 @@ async function refreshMcpTools(): Promise<void> {
     const { tools, errors } = await mcp.listToolsWithErrors();
     mcpTools = tools;
     const loaded = specs.filter((s) => !errors[s.key]).map((s) => s.label);
-    console.log(`[agent-mcp] MCP tools ready: ${loaded.join(', ') || 'none'} (${Object.keys(tools).length} tools)`);
+    console.log(
+      `[agent-mcp] MCP tools ready: ${loaded.join(", ") || "none"} (${Object.keys(tools).length} tools)`,
+    );
     for (const key of Object.keys(errors)) {
-      console.warn(`[agent-mcp] ${key} failed to load despite tokens — re-authorize with connect_service.`);
+      console.warn(
+        `[agent-mcp] ${key} failed to load despite tokens — re-authorize with connect_service.`,
+      );
     }
   } else {
     mcp = null;
     mcpTools = {};
-    console.log('[agent-mcp] No services connected yet — use connect_service to authorize Jira, Notion, or Postman.');
+    console.log(
+      "[agent-mcp] No services connected yet — use connect_service to authorize Jira, Notion, or Postman.",
+    );
   }
   if (previous) await previous.disconnect().catch(() => {});
 }
@@ -111,6 +122,11 @@ await refreshMcpTools();
 // On a successful connection the client + tool snapshot are rebuilt so the new
 // server's tools become callable right away.
 const authTools = createAuthTools(refreshMcpTools);
+
+const gateway = createOpenAI({
+  apiKey: process.env.ASTRO_GATEWAY_API_KEY,
+  baseURL: process.env.ASTRO_GATEWAY_URL,
+});
 
 const instructions = `You are agent-mcp, an assistant that answers questions by reading across three connected systems via their MCP tools:
 
@@ -132,10 +148,11 @@ Connecting a service (OAuth):
 - Use \`list_connections\` whenever you're unsure which services are currently authorized.`;
 
 const agent = new Agent({
-  id: 'agent-mcp',
-  name: 'Agent Mcp',
+  id: "agent-mcp",
+  name: "Agent Mcp",
   instructions,
-  model: 'anthropic/claude-sonnet-4-5',
+  //model: "anthropic/claude-sonnet-4-6",
+  model: gateway("claude-sonnet-4-6"),
   // Dynamic so newly-connected MCP servers (via connect_service) are picked up
   // without a restart. Re-evaluated per request from the live snapshot.
   tools: () => ({ ...mcpTools, ...authTools }),
@@ -144,9 +161,9 @@ const agent = new Agent({
   // The collector endpoint is injected by `ast dev`.
   defaultOptions: {
     tracingOptions: {
-      tags: ['astro', 'agent:agent-mcp'],
+      tags: ["astro", "agent:agent-mcp"],
       metadata: {
-        agent_id: 'agent-mcp',
+        agent_id: "agent-mcp",
       },
     },
   },
@@ -156,7 +173,7 @@ const agent = new Agent({
 // `serve(agent)` handles request serving; this constructor call wires runtime integration.
 new Mastra({
   agents: {
-    'agent-mcp': agent,
+    "agent-mcp": agent,
   },
   observability,
 });
