@@ -151,8 +151,8 @@ const agent = new Agent({
   id: "agent-mcp",
   name: "Agent Mcp",
   instructions,
-  //model: "anthropic/claude-sonnet-4-6",
-  model: gateway("claude-sonnet-4-6"),
+  model: "anthropic/claude-sonnet-4-6",
+  //model: gateway("claude-sonnet-4-6"),
   // Dynamic so newly-connected MCP servers (via connect_service) are picked up
   // without a restart. Re-evaluated per request from the live snapshot.
   tools: () => ({ ...mcpTools, ...authTools }),

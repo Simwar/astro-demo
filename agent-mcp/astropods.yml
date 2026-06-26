@@ -4,7 +4,7 @@ name: cross-tool-assistant
 meta: {}
 
 agent:
-  astro_ai_gateway: true
+  # astro_ai_gateway: true
   build:
     context: .
     dockerfile: Dockerfile
@@ -21,9 +21,9 @@ agent:
   # The code still honors OAUTH_REDIRECT_URL / OAUTH_CALLBACK_PORT /
   # OAUTH_STORE_DIR via env if ever set, but they aren't prompted at deploy.
 
-#models:
-#  anthropic:
-#    provider: anthropic
+models:
+  anthropic:
+    provider: anthropic
 
 # Writable token store for OAuth credentials. The deployed container FS is
 # read-only, so tokens (and refresh tokens) persist in Redis. Injects REDIS_URL.
