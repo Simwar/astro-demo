@@ -1,0 +1,20 @@
+# yaml-language-server: $schema=https://astropods.com/schema/package.json
+spec: package/v1
+name: oauth-mcp-server
+meta: {}
+
+agent:
+  build:
+    context: .
+    dockerfile: Dockerfile
+  interfaces:
+    # Frontend-only: this is a plain HTTP service (the MCP + OAuth endpoints), not
+    # a chat agent. The platform provisions a public host, injects
+    # ASTRO_EXTERNAL_AGENT_URL + PORT=80, and routes the host to the container.
+    frontend: true
+    messaging: false
+
+dev:
+  interfaces:
+    frontend:
+      port: 8787
