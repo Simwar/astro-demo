@@ -1,5 +1,5 @@
 ---
-description: "A self-contained OAuth 2.1 MCP server — authorization server + resource server with demo tools — deployable on Astro."
+description: "A self-contained OAuth 2.1 MCP server with a login screen and per-user data, over its own notes service, deployable on Astro."
 tags:
   - mcp
   - oauth
@@ -13,9 +13,11 @@ repository:
   url: https://github.com/Simwar/astro-demo.git
   directory: mcp-server
 capabilities:
-  - "Serve MCP tools over a bearer-protected Streamable HTTP endpoint"
+  - "Authenticate users via a login + consent screen"
   - "Issue OAuth 2.1 tokens via dynamic client registration + PKCE"
+  - "Serve per-user MCP tools over a bearer-protected Streamable HTTP endpoint"
   - "Advertise OAuth discovery and Protected Resource Metadata (RFC 9728)"
+  - "Emit OpenTelemetry traces for MCP requests, tool calls, and outbound API calls"
 ---
 
 # oauth-mcp-server
@@ -32,20 +34,27 @@ Built on the [MCP TypeScript SDK](https://github.com/modelcontextprotocol/typesc
 One Express app exposes:
 
 - **Authorization server** (`mcpAuthRouter`): `/.well-known/oauth-authorization-server`, `/register` (RFC 7591 dynamic client registration), `/authorize`, `/token` — OAuth 2.1 with PKCE.
+- **Login screen** at `/authorize` → `/login`: `authorize()` renders a sign-in + consent page; the issued token is bound to the authenticated user.
 - **Protected Resource Metadata** (RFC 9728) at `/.well-known/oauth-protected-resource/mcp`.
 - **MCP endpoint** at `/mcp` (Streamable HTTP), gated by `requireBearerAuth`.
 
-Issuer and resource URLs are derived from the agent's public URL
-(`ASTRO_EXTERNAL_AGENT_URL`) on deploy, and `localhost` in dev, so discovery
-documents always advertise reachable endpoints.
+The server owns its data — a per-user **notes** store. The signed-in user's id
+flows from the bearer token into each tool (`extra.authInfo.extra.userId`), so
+every call only sees the caller's own notes. Issuer/resource URLs derive from
+the agent's public URL (`ASTRO_EXTERNAL_AGENT_URL`) on deploy and `localhost` in
+dev, so discovery documents always advertise reachable endpoints.
 
-### Demo tools
+### Tools
 
 | Tool | Description |
 |------|-------------|
-| `echo` | Echo back the provided text. |
-| `add` | Add two numbers. |
-| `current_time` | Return the current server time (ISO 8601). |
+| `whoami` | Show the authenticated user. |
+| `list_notes` | List your saved notes. |
+| `add_note` | Save a new note. |
+| `delete_note` | Delete one of your notes by id. |
+| `weather` | Current weather for a city — a third-party call to the Open-Meteo public API (no key). |
+
+Demo accounts (in-memory): `alice / password`, `bob / password`.
 
 ## Usage
 
@@ -63,11 +72,11 @@ claude mcp add --transport http oauth-demo http://localhost:8787/mcp
 
 ## Limitations
 
-- **In-memory state.** Registered clients, auth codes, and tokens reset on
-  restart. Back the provider with a persistent store (e.g. Redis) for anything
-  real.
-- **Auto-approves consent.** `authorize()` issues a code without a login/consent
-  screen — it exercises the full OAuth/PKCE/DCR machinery but performs no user
-  authentication. Add a real login step before using this beyond a demo.
-- **Demo tools only.** `echo` / `add` / `current_time` exist to prove the
-  transport and auth, not to do real work.
+- **In-memory state.** Registered clients, auth codes, tokens, and notes reset
+  on restart. Back the provider and the notes store with a persistent store
+  (e.g. Redis) for anything real.
+- **Demo user directory.** Users are a hardcoded list (`alice` / `bob`) with
+  plaintext passwords. Swap `users.ts` for your real identity provider; never
+  ship plaintext credentials.
+- **Demo data/tools.** The notes service and the `weather` tool exist to show
+  per-user data + a third-party API call, not to do real work.

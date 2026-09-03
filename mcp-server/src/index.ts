@@ -17,6 +17,11 @@ import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middlew
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { InMemoryOAuthProvider, SCOPES_SUPPORTED } from "./oauth-provider";
 import { createMcpServer } from "./mcp-server";
+import { mountLogin } from "./login";
+import { initTelemetry, withSpan } from "./telemetry";
+
+// Initialize tracing before anything creates spans.
+initTelemetry();
 
 const PORT = Number(process.env.PORT ?? 8787);
 
@@ -33,6 +38,10 @@ const resourceMetadataUrl = new URL("/.well-known/oauth-protected-resource/mcp",
 const provider = new InMemoryOAuthProvider();
 const app = express();
 app.use(express.json());
+app.use(express.urlencoded({ extended: false })); // login form submissions
+
+// Login screen handler (POST /login), paired with the form rendered by authorize().
+mountLogin(app, provider);
 
 // Authorization-server endpoints + Protected Resource Metadata. AS and RS share
 // this origin; the protected resource is the /mcp endpoint. Must be mounted at
@@ -53,14 +62,23 @@ app.use(
 const requireAuth = requireBearerAuth({ verifier: provider, resourceMetadataUrl });
 
 app.post("/mcp", requireAuth, async (req, res) => {
-  const server = createMcpServer();
-  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-  res.on("close", () => {
-    void transport.close();
-    void server.close();
-  });
-  await server.connect(transport);
-  await transport.handleRequest(req, res, req.body);
+  const method = typeof req.body?.method === "string" ? req.body.method : "unknown";
+  // Root span for the request; tool-call spans (created inside handleRequest)
+  // nest under it via the active context.
+  await withSpan(
+    "mcp.request",
+    { "mcp.method": method, "mcp.user.id": (req.auth?.extra?.userId as string) ?? "" },
+    async () => {
+      const server = createMcpServer();
+      const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+      res.on("close", () => {
+        void transport.close();
+        void server.close();
+      });
+      await server.connect(transport);
+      await transport.handleRequest(req, res, req.body);
+    },
+  );
 });
 
 // Stateless mode: no server-initiated SSE stream or session teardown.

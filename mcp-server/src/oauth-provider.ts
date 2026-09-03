@@ -7,8 +7,10 @@
  * it resets on restart — fine for a demo; back it with a store (e.g. Redis) for
  * anything real.
  *
- * Demo simplification: `authorize()` auto-approves instead of rendering a login
- * / consent screen. The full OAuth/PKCE/DCR machinery still runs end to end.
+ * `authorize()` renders a login screen (see login.ts) rather than auto-
+ * approving. The signed-in user's id is bound to the authorization code and the
+ * tokens issued from it, and surfaced to tools via AuthInfo.extra.userId — so
+ * every tool call is scoped to the caller.
  */
 import { randomBytes, randomUUID } from "node:crypto";
 import type { Response } from "express";
@@ -26,6 +28,7 @@ import type {
   OAuthClientInformationFull,
   OAuthTokens,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
+import { renderLoginPage } from "./login";
 
 const ACCESS_TTL_SECONDS = 60 * 60; // 1 hour
 const CODE_TTL_MS = 5 * 60 * 1000; // 5 minutes
@@ -36,6 +39,7 @@ const newToken = () => randomBytes(32).toString("base64url");
 
 interface CodeRecord {
   clientId: string;
+  userId: string;
   codeChallenge: string;
   redirectUri: string;
   scopes: string[];
@@ -45,6 +49,7 @@ interface CodeRecord {
 
 interface RefreshRecord {
   clientId: string;
+  userId: string;
   scopes: string[];
   resource?: string;
 }
@@ -68,27 +73,35 @@ export class InMemoryOAuthProvider implements OAuthServerProvider {
     },
   };
 
+  /**
+   * Render the login screen. The form POSTs to /login (see mountLogin), which
+   * authenticates the user and calls issueCode() to complete the flow.
+   */
   async authorize(
     client: OAuthClientInformationFull,
     params: AuthorizationParams,
     res: Response,
   ): Promise<void> {
-    // Demo: auto-approve. A real server would render a consent/login screen and
-    // only issue the code after the user approves.
+    res.send(renderLoginPage({ clientId: client.client_id, clientName: client.client_name, params }));
+  }
+
+  /** Issue an authorization code for an authenticated user. Called by /login. */
+  issueCode(
+    clientId: string,
+    userId: string,
+    opts: { codeChallenge: string; redirectUri: string; scopes: string[]; resource?: string },
+  ): string {
     const code = newToken();
     this.codes.set(code, {
-      clientId: client.client_id,
-      codeChallenge: params.codeChallenge,
-      redirectUri: params.redirectUri,
-      scopes: params.scopes ?? SCOPES_SUPPORTED,
-      resource: params.resource?.href,
+      clientId,
+      userId,
+      codeChallenge: opts.codeChallenge,
+      redirectUri: opts.redirectUri,
+      scopes: opts.scopes,
+      resource: opts.resource,
       expiresAt: Date.now() + CODE_TTL_MS,
     });
-
-    const redirect = new URL(params.redirectUri);
-    redirect.searchParams.set("code", code);
-    if (params.state) redirect.searchParams.set("state", params.state);
-    res.redirect(redirect.toString());
+    return code;
   }
 
   async challengeForAuthorizationCode(
@@ -117,7 +130,7 @@ export class InMemoryOAuthProvider implements OAuthServerProvider {
     if (record.expiresAt < Date.now()) {
       throw new InvalidGrantError("Authorization code expired");
     }
-    return this.issueTokens(client.client_id, record.scopes, resource?.href ?? record.resource);
+    return this.issueTokens(client.client_id, record.userId, record.scopes, resource?.href ?? record.resource);
   }
 
   async exchangeRefreshToken(
@@ -132,7 +145,7 @@ export class InMemoryOAuthProvider implements OAuthServerProvider {
     }
     this.refreshTokens.delete(refreshToken); // rotate
     const grantedScopes = scopes?.length ? scopes : record.scopes;
-    return this.issueTokens(client.client_id, grantedScopes, resource?.href ?? record.resource);
+    return this.issueTokens(client.client_id, record.userId, grantedScopes, resource?.href ?? record.resource);
   }
 
   async verifyAccessToken(token: string): Promise<AuthInfo> {
@@ -143,7 +156,12 @@ export class InMemoryOAuthProvider implements OAuthServerProvider {
     return info;
   }
 
-  private issueTokens(clientId: string, scopes: string[], resource?: string): OAuthTokens {
+  private issueTokens(
+    clientId: string,
+    userId: string,
+    scopes: string[],
+    resource?: string,
+  ): OAuthTokens {
     const accessToken = newToken();
     const refreshToken = newToken();
     this.accessTokens.set(accessToken, {
@@ -152,8 +170,9 @@ export class InMemoryOAuthProvider implements OAuthServerProvider {
       scopes,
       expiresAt: now() + ACCESS_TTL_SECONDS,
       resource: resource ? new URL(resource) : undefined,
+      extra: { userId }, // surfaced to tools as extra.authInfo.extra.userId
     });
-    this.refreshTokens.set(refreshToken, { clientId, scopes, resource });
+    this.refreshTokens.set(refreshToken, { clientId, userId, scopes, resource });
     return {
       access_token: accessToken,
       token_type: "Bearer",
