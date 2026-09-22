@@ -103,6 +103,21 @@ a bare `Unauthorized` with no hint about which header was expected, so if a
 model call starts failing auth, check the scheme before anything else. In code
 this lives in one place: `openai_headers()` and `jev_api_key()` in `gateway.py`.
 
+### Reading gateway failures
+
+The two failure codes mean very different things, and mistaking one for the other
+wastes an afternoon:
+
+| Status | Body | Cause |
+| --- | --- | --- |
+| `401` | `Unauthorized` | Wrong **auth scheme** for that route (see the table above), or a bad key. A code problem. |
+| `421` | `misdirected request` | The tenant's vhost is not reachable from your current network. **Usually the VPN.** Not a code problem. |
+
+Tell them apart quickly: a `421` hits *every* route including `GET /`, persists
+after an HTTP/1.1 downgrade, and carries `x-envoy-upstream-service-time: 1` —
+the edge rejects it without ever proxying upstream. A `401` is route-specific,
+so one route keeps working while the other fails.
+
 ## What Jev changes
 
 - **Priority and sentiment cannot come back malformed.** Previously a model that
