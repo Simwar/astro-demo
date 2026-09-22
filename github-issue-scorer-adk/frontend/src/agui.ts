@@ -32,6 +32,12 @@ export interface IssueCard {
   sentiment_confidence?: number;
   /** Continuous 0..2 impact score; breaks ties inside a priority bucket. */
   severity?: number;
+  /** Full distributions behind the answers — what makes a score explainable. */
+  priority_probabilities?: Record<string, number>;
+  sentiment_probabilities?: Record<string, number>;
+  severity_probabilities?: Record<string, number>;
+  /** Rubric text keyed by severity level, straight from Jev's legend. */
+  severity_legend?: Record<string, string>;
   /** Jev saw a workaround, whether or not the write-up extracted one. */
   workaround_signal?: boolean;
   /** Jev saw a competitor mention, whether or not the write-up extracted one. */

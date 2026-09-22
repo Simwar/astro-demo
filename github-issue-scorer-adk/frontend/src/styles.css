@@ -175,3 +175,27 @@ body {
 .app__limit input::-webkit-outer-spin-button,
 .app__limit input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .app__limit:has(input:disabled) { opacity: 0.45; }
+
+/* Styled tooltip via data-tip. The native `title` attribute was too slow to
+   appear and easy to miss, and it can't render a multi-line distribution. */
+.tip { position: relative; cursor: help; }
+.tip::after {
+  content: attr(data-tip);
+  position: absolute; bottom: calc(100% + 8px); left: 50%;
+  transform: translateX(-50%) translateY(3px);
+  width: max-content; max-width: 260px;
+  padding: 8px 10px; border-radius: 8px;
+  background: #07090d; border: 1px solid var(--border);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  color: var(--text); text-align: left;
+  font: 400 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0; text-transform: none; white-space: pre-line;
+  opacity: 0; visibility: hidden; pointer-events: none; z-index: 20;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+.tip:hover::after,
+.tip:focus-visible::after {
+  opacity: 1; visibility: visible; transform: translateX(-50%) translateY(0);
+}
+/* Widen the hover target: three 3px bars are a fiddly thing to aim at. */
+.sev { padding: 3px 2px; }

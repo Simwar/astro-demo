@@ -159,6 +159,22 @@ def _read_noul(answer: Any) -> Optional[bool]:
     return bool(value > 0.5) if isinstance(value, (int, float)) else None
 
 
+def _read_probabilities(answer: Any) -> Optional[dict[str, float]]:
+    """The full distribution behind a choice or score.
+
+    This is what makes a Jev answer explainable rather than just asserted, so it
+    is worth the few bytes in session state: the dashboard renders it as the
+    breakdown behind the confidence figure.
+    """
+    probs = _field(answer, "probabilities")
+    if not isinstance(probs, dict):
+        return None
+    out = {
+        str(k): float(v) for k, v in probs.items() if isinstance(v, (int, float))
+    }
+    return out or None
+
+
 def normalize_scores(result: Any) -> Optional[dict[str, Any]]:
     """Map a SystemOneResponse onto card fields, or None if it is unusable.
 
@@ -179,9 +195,25 @@ def normalize_scores(result: Any) -> Optional[dict[str, Any]]:
         "sentiment": sentiment[0],
         "sentiment_confidence": sentiment[1],
     }
-    severity = _read_score(scores.get("severity"))
+    priority_probs = _read_probabilities(choices.get("priority"))
+    if priority_probs:
+        out["priority_probabilities"] = priority_probs
+    sentiment_probs = _read_probabilities(choices.get("sentiment"))
+    if sentiment_probs:
+        out["sentiment_probabilities"] = sentiment_probs
+
+    severity_answer = scores.get("severity")
+    severity = _read_score(severity_answer)
     if severity is not None:
         out["severity"] = severity
+        # The rubric text keyed by level. Shipped per card rather than duplicated
+        # in the frontend so the wording stays in step with QUESTIONS above.
+        legend = _field(severity_answer, "legend")
+        if isinstance(legend, dict):
+            out["severity_legend"] = {str(k): str(v) for k, v in legend.items()}
+        severity_probs = _read_probabilities(severity_answer)
+        if severity_probs:
+            out["severity_probabilities"] = severity_probs
     workaround = _read_noul(nouls.get("has_workaround"))
     if workaround is not None:
         out["workaround_signal"] = workaround
