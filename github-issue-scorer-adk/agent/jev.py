@@ -14,6 +14,7 @@ own enums, which is why the prose prompt still asks for them.
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any, Optional
 
@@ -233,15 +234,37 @@ async def score_issue(
     number = issue.get("number")
     state = build_state(issue, comments)
     try:
-        with tel.get_tracer().start_as_current_span(f"jev-score-#{number}") as span:
+        with tel.get_tracer().start_as_current_span(f"jev-#{number}") as span:
             span.set_attribute(tel.OBS_TYPE, "generation")
             span.set_attribute(tel.GEN_MODEL, gateway.JEV_MODEL)
-            span.set_attribute(tel.OBS_INPUT, str(state)[:4000])
+            span.set_attribute("jev.questions", len(QUESTIONS))
+            # JSON, not a Python repr — this is read by humans in a trace viewer.
+            span.set_attribute(tel.OBS_INPUT, json.dumps(state)[:4000])
+
             result = await client().system_one(
                 state, QUESTIONS, model=gateway.JEV_MODEL
             )
             scores = normalize_scores(result)
-            span.set_attribute(tel.OBS_OUTPUT, str(scores)[:4000])
+
+            span.set_attribute(
+                tel.OBS_OUTPUT, json.dumps(scores, default=str)[:4000]
+            )
+            # Promote the decision itself, so a trace can be scanned without
+            # opening each span's output.
+            if scores is not None:
+                span.set_attribute("jev.priority", scores["priority"])
+                span.set_attribute(
+                    "jev.priority_confidence", scores["priority_confidence"]
+                )
+                span.set_attribute("jev.sentiment", scores["sentiment"])
+                if scores.get("severity") is not None:
+                    span.set_attribute("jev.severity", scores["severity"])
+            else:
+                # No exception, so the span would otherwise look successful even
+                # though the card silently fell back to the LLM's enums.
+                span.set_attribute("jev.fallback", True)
+                span.set_attribute("jev.fallback_reason", "unusable answers")
+
             usage = getattr(result, "usage", None)
             if usage is not None:
                 span.set_attribute(

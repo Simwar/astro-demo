@@ -220,7 +220,7 @@ async def _score_prose(issue: dict[str, Any], comments: list[str]) -> dict[str, 
     # Trace each scoring call as a generation so token usage/cost land in the
     # platform's run view. These are direct LiteLLM calls (outside ADK), so they
     # wouldn't be captured otherwise.
-    with tel.get_tracer().start_as_current_span(f"score-issue-#{issue.get('number')}") as span:
+    with tel.get_tracer().start_as_current_span(f"prose-#{issue.get('number')}") as span:
         span.set_attribute(tel.OBS_TYPE, "generation")
         span.set_attribute(tel.GEN_MODEL, gateway.PROSE_MODEL)
         span.set_attribute(tel.OBS_INPUT, user_msg[:4000])
@@ -274,9 +274,46 @@ def merge_analysis(
 
 async def score_issue(issue: dict[str, Any], comments: list[str]) -> dict[str, Any]:
     """Score one issue with both models concurrently (async -> its own event
-    boundary, which keeps STATE_DELTAs streaming one card at a time)."""
-    prose, jev_scores = await asyncio.gather(
-        _score_prose(issue, comments),
-        jev.score_issue(issue, comments),
-    )
-    return merge_analysis(prose, jev_scores)
+    boundary, which keeps STATE_DELTAs streaming one card at a time).
+
+    Wrapped in a per-issue span so a 20-issue run reads as 20 groups of two
+    generations, rather than 40 sibling spans under the tool call. Context
+    propagates into both tasks because asyncio copies contextvars on task
+    creation, so the two generations nest underneath this span.
+    """
+    number = issue.get("number")
+    with tel.get_tracer().start_as_current_span(f"issue-#{number}") as span:
+        span.set_attribute(tel.OBS_TYPE, "span")
+        span.set_attribute("issue.number", number or 0)
+        span.set_attribute("issue.title", (issue.get("title") or "")[:200])
+        span.set_attribute("issue.comments", len(comments))
+
+        prose, jev_scores = await asyncio.gather(
+            _score_prose(issue, comments),
+            jev.score_issue(issue, comments),
+        )
+        merged = merge_analysis(prose, jev_scores)
+
+        # The one attribute worth scanning a trace for: which model actually
+        # decided this card's priority.
+        span.set_attribute(
+            "issue.scored_by", "jev" if jev_scores else "llm-fallback"
+        )
+        span.set_attribute("issue.priority", merged["priority"])
+        span.set_attribute("issue.sentiment", merged["sentiment"])
+        if merged.get("severity") is not None:
+            span.set_attribute("issue.severity", merged["severity"])
+        if merged.get("priority_confidence") is not None:
+            span.set_attribute(
+                "issue.priority_confidence", merged["priority_confidence"]
+            )
+        span.set_attribute(
+            tel.OBS_OUTPUT,
+            f"{merged['priority']}/{merged['sentiment']}"
+            + (
+                f" severity={merged['severity']:.2f}"
+                if merged.get("severity") is not None
+                else ""
+            ),
+        )
+        return merged

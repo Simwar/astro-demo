@@ -24,6 +24,7 @@ import httpx
 from google.adk.tools import ToolContext
 
 from . import a2a_client
+from . import gateway
 from . import github
 from . import telemetry as tel
 
@@ -91,6 +92,11 @@ async def score_github_issues(
         span.set_attribute(tel.OBS_TYPE, "span")
         span.set_attribute(tel.OBS_INPUT, target)
         span.set_attribute(tel.TRACE_INPUT, target)
+        span.set_attribute("scorer.repo", f"{owner}/{repo}")
+        span.set_attribute("scorer.prose_model", gateway.PROSE_MODEL)
+        span.set_attribute("scorer.jev_model", gateway.JEV_MODEL)
+        span.set_attribute("scorer.jev_enabled", gateway.jev_enabled())
+        span.set_attribute("scorer.concurrency", SCORE_CONCURRENCY)
         sid, uid = _session_user(tool_context)
         if sid:
             span.set_attribute(tel.SESSION_ID, sid)
@@ -102,6 +108,7 @@ async def score_github_issues(
         summary = result.get("message") or ", ".join(
             f"#{r['number']}:{r['priority']}" for r in result.get("ranking", [])
         )
+        span.set_attribute("scorer.issues_scored", result.get("scored", 0))
         span.set_attribute(tel.OBS_OUTPUT, summary)
         span.set_attribute(tel.TRACE_OUTPUT, summary)
         return result
