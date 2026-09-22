@@ -20,5 +20,5 @@ def build_model() -> LiteLlm:
         model=f"openai/{gateway.PROSE_MODEL}",
         api_base=gateway.openai_base_url(),
         api_key=gateway.BROKERED_BY_GATEWAY,
-        extra_headers=gateway.gateway_headers(),
+        extra_headers=gateway.openai_headers(),
     )

@@ -12,15 +12,28 @@ three exactly when traffic is least supervised.
 Each client appends its own suffix, so the two base URLs differ:
   litellm's openai provider posts to {base}/chat/completions  -> base carries /v1
   typesafe-sdk posts to          {base}/v1/systemone          -> base must not
+
+The two routes also AUTHENTICATE DIFFERENTLY. Verified against the live gateway
+on 2026-09-22:
+
+  /openai/*   X-Gateway-Key: <key>          (its own Authorization is ignored)
+  /jev/*      Authorization: Bearer <key>   (X-Gateway-Key is rejected outright)
+
+Each route carries its own route-auth plugin instance, configured independently,
+so the asymmetry is a property of the gateway config rather than a bug here.
+Sending the wrong scheme returns a bare `401 Unauthorized` with no hint as to
+which header it wanted, so keep the two paths clearly separated below.
 """
 
 from __future__ import annotations
 
 import os
 
-# Both clients want a value in their own auth slot and send it upstream as an
-# Authorization header; the gateway substitutes the real provider credential, so
-# it is never used. The TypeSafe client raises TypeSafeError without one.
+# The OpenAI route authenticates on X-Gateway-Key and ignores Authorization, but
+# the openai/litellm clients insist on *some* api_key and always send it as a
+# bearer token. This is the value they send; the gateway pays it no attention.
+# The Jev route is the opposite case — there the key goes in api_key itself, see
+# jev_api_key() below.
 BROKERED_BY_GATEWAY = "unused-gateway-brokers-auth"
 
 GATEWAY_URL_VAR = "FABRIC_GATEWAY_URL"
@@ -47,8 +60,20 @@ def gateway_origin() -> str:
     return _require(GATEWAY_URL_VAR).rstrip("/")
 
 
-def gateway_headers() -> dict[str, str]:
-    return {GATEWAY_KEY_HEADER: _require(GATEWAY_KEY_VAR)}
+def gateway_key() -> str:
+    return _require(GATEWAY_KEY_VAR)
+
+
+def openai_headers() -> dict[str, str]:
+    """Auth for the /openai route: the key rides in X-Gateway-Key."""
+    return {GATEWAY_KEY_HEADER: gateway_key()}
+
+
+def jev_api_key() -> str:
+    """Auth for the /jev route: the key rides in Authorization: Bearer, which is
+    exactly what typesafe-sdk does with `api_key`. So the gateway key *is* the
+    api_key here — no custom header, and no placeholder."""
+    return gateway_key()
 
 
 def openai_base_url() -> str:
@@ -66,7 +91,7 @@ def assert_configured() -> None:
     which is a much harder failure to read than a clear error at launch.
     """
     gateway_origin()
-    gateway_headers()
+    gateway_key()
 
 
 def jev_enabled() -> bool:

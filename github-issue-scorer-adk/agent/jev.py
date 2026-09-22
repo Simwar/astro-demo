@@ -77,10 +77,12 @@ def client() -> AsyncTypeSafeClient:
     """Lazily built and reused: one HTTP pool for the process, not one per issue."""
     global _client
     if _client is None:
+        # The /jev route authenticates on Authorization: Bearer, which is what
+        # the SDK sends from api_key — so the gateway key goes there. Passing
+        # X-Gateway-Key instead returns a bare 401. See gateway.py.
         _client = AsyncTypeSafeClient(
-            api_key=gateway.BROKERED_BY_GATEWAY,
+            api_key=gateway.jev_api_key(),
             base_url=gateway.jev_base_url(),
-            headers=gateway.gateway_headers(),
         )
     return _client
 
@@ -106,34 +108,63 @@ def build_state(issue: dict[str, Any], comments: list[str]) -> dict[str, Any]:
 # the wire — a gateway error page, a partial payload, a future schema change.
 
 
+def _field(obj: Any, name: str) -> Any:
+    """Read a field off either a model instance or a plain dict."""
+    if isinstance(obj, dict):
+        return obj.get(name)
+    return getattr(obj, name, None)
+
+
+def _buckets(result: Any) -> tuple[dict, dict, dict]:
+    """Group the answers by primitive, accepting either response shape.
+
+    The documented Python SDK splits answers into `.choices` / `.scores` /
+    `.nouls`; the wire format (and the JavaScript SDK) use a single flat
+    `answers` map keyed by question name. Accept both, so that if the SDK's
+    shape differs from the docs we degrade to the LLM fallback loudly via the
+    warning in score_issue rather than silently never using Jev at all.
+    """
+    choices = dict(_field(result, "choices") or {})
+    scores = dict(_field(result, "scores") or {})
+    nouls = dict(_field(result, "nouls") or {})
+    if choices or scores or nouls:
+        return choices, scores, nouls
+
+    for name, answer in (_field(result, "answers") or {}).items():
+        kind = _field(answer, "type")
+        if kind == "choice":
+            choices[name] = answer
+        elif kind == "score":
+            scores[name] = answer
+        elif kind == "noul":
+            nouls[name] = answer
+    return choices, scores, nouls
+
+
 def _read_choice(answer: Any, valid: set[str]) -> Optional[tuple[str, float]]:
-    value = getattr(answer, "choice", None)
+    value = _field(answer, "choice")
     if not isinstance(value, str) or value not in valid:
         return None
-    confidence = getattr(answer, "confidence", None)
+    confidence = _field(answer, "confidence")
     return value, float(confidence) if isinstance(confidence, (int, float)) else 0.0
 
 
 def _read_score(answer: Any) -> Optional[float]:
-    value = getattr(answer, "score", None)
+    value = _field(answer, "score")
     return float(value) if isinstance(value, (int, float)) else None
 
 
 def _read_noul(answer: Any) -> Optional[bool]:
-    value = getattr(answer, "noul", None)
+    value = _field(answer, "noul")
     return bool(value > 0.5) if isinstance(value, (int, float)) else None
 
 
 def normalize_scores(result: Any) -> Optional[dict[str, Any]]:
     """Map a SystemOneResponse onto card fields, or None if it is unusable.
 
-    Note the Python SDK splits answers by primitive — `result.choices`,
-    `result.scores`, `result.nouls` — rather than the single `answers` map the
-    JavaScript SDK returns.
+    Reads whichever response shape the SDK hands back; see _buckets.
     """
-    choices = getattr(result, "choices", None) or {}
-    scores = getattr(result, "scores", None) or {}
-    nouls = getattr(result, "nouls", None) or {}
+    choices, scores, nouls = _buckets(result)
 
     priority = _read_choice(choices.get("priority"), VALID_PRIORITIES)
     sentiment = _read_choice(choices.get("sentiment"), VALID_SENTIMENTS)

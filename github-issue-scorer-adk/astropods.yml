@@ -18,13 +18,15 @@ agent:
     # this agent has its own UI instead of the playground chat.
     frontend: true
   inputs:
-    # Sent as X-Gateway-Key on every model call. Required: the agent fails at
-    # startup without it rather than 401-ing on the first message. No default —
-    # the platform does not reliably apply defaults to secret inputs.
+    # One key, but the two routes want it in different headers: /openai reads
+    # X-Gateway-Key while /jev reads Authorization: Bearer, and each 401s on the
+    # other. See agent/gateway.py. Required: the agent fails at startup without
+    # it rather than 401-ing on the first message. No default — the platform
+    # does not reliably apply defaults to secret inputs.
     - name: FABRIC_GATEWAY_KEY
       datatype: string
       secret: true
-      description: "Postman Fabric Gateway key, sent as X-Gateway-Key on all model calls."
+      description: "Postman Fabric Gateway key, used for both the openai and jev routes."
     - name: FABRIC_GATEWAY_URL
       datatype: string
       default: https://gbadebo-bello-s-fabric-team-59d0b541.dp.fabricgateway.ai

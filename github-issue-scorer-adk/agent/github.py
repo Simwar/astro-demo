@@ -235,7 +235,7 @@ async def _score_prose(issue: dict[str, Any], comments: list[str]) -> dict[str, 
             model=f"openai/{gateway.PROSE_MODEL}",
             api_base=gateway.openai_base_url(),
             api_key=gateway.BROKERED_BY_GATEWAY,
-            extra_headers=gateway.gateway_headers(),
+            extra_headers=gateway.openai_headers(),
             response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": ANALYSIS_SYSTEM_PROMPT},

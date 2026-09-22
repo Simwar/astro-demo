@@ -31,7 +31,7 @@ One container, one FastAPI process on port 80: `/agui` (AG-UI) + `/` (dashboard)
 agent/
   main.py     FastAPI app: /agui endpoint + static SPA mount + uvicorn
   agent.py    ADK LlmAgent + ag_ui_adk ADKAgent bridge
-  gateway.py  Fabric Gateway config: base URLs, X-Gateway-Key, fail-closed check
+  gateway.py  Fabric Gateway config: per-route base URLs + auth, fail-closed check
   jev.py      Jev question set, state budget, answer normalisation
   model.py    LiteLlm pointed at the Fabric Gateway's /openai route
   tools.py    score_github_issues — writes results into session state (live UI)
@@ -75,7 +75,7 @@ time rather than all at once.
 
 | Variable | Description |
 | --- | --- |
-| `FABRIC_GATEWAY_KEY` | Gateway key, sent as `X-Gateway-Key`. Required at startup |
+| `FABRIC_GATEWAY_KEY` | Gateway key for both routes (see auth note below). Required at startup |
 | `FABRIC_GATEWAY_URL` | Gateway base URL; defaults to the team gateway |
 | `JEV_ENABLED` | Set to `0` to score with the LLM alone, for comparison |
 | `PROSE_MODEL` / `JEV_MODEL` | Model id overrides (`gpt-4o-mini`, `jev-latest`) |
@@ -84,10 +84,24 @@ time rather than all at once.
 
 There is deliberately no direct-to-provider fallback. The gateway is where PII
 redaction, token limits and per-route tracing live, and a bypass would skip all
-three exactly when traffic is least supervised. The two base URLs differ because
-each client appends its own suffix: LiteLLM's openai provider posts to
+three exactly when traffic is least supervised.
+
+**The two routes differ in two ways, and both will bite you.** Base URL, because
+each client appends its own suffix — LiteLLM's openai provider posts to
 `{base}/chat/completions` so its base carries `/v1`, while `typesafe-sdk` posts
-to `{base}/v1/systemone` so its base must not.
+to `{base}/v1/systemone` so its base must not. And authentication, verified
+against the live gateway on 2026-09-22:
+
+| Route | Header it wants | Sending the other |
+| --- | --- | --- |
+| `/openai/*` | `X-Gateway-Key: <key>` | `401 Unauthorized` |
+| `/jev/*` | `Authorization: Bearer <key>` | `401 Unauthorized` |
+
+Each route has its own `route-auth` plugin instance, configured independently,
+so this is a property of the gateway rather than of either SDK. The 401 body is
+a bare `Unauthorized` with no hint about which header was expected, so if a
+model call starts failing auth, check the scheme before anything else. In code
+this lives in one place: `openai_headers()` and `jev_api_key()` in `gateway.py`.
 
 ## What Jev changes
 
