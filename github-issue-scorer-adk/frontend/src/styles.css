@@ -157,3 +157,21 @@ body {
 .pri-low .sev i.sev__on { background: var(--low); }
 
 .card__meta--hint { color: var(--accent); opacity: 0.75; font-style: italic; }
+
+/* Issue-count picker: sits between the repo field and the action button, and
+   reads as one unit with the "issues" suffix rather than a bare number box. */
+.app__limit {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 0 14px 0 12px; border-radius: 10px;
+  background: var(--panel); border: 1px solid var(--border);
+  color: var(--muted); font-size: 13px; white-space: nowrap;
+}
+.app__limit:focus-within { border-color: var(--accent); }
+.app__limit input {
+  width: 3.2ch; padding: 12px 0; border: 0; background: transparent;
+  color: var(--text); font-size: 15px; font-variant-numeric: tabular-nums;
+  text-align: right; outline: none; -moz-appearance: textfield;
+}
+.app__limit input::-webkit-outer-spin-button,
+.app__limit input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.app__limit:has(input:disabled) { opacity: 0.45; }

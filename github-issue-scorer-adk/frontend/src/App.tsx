@@ -4,6 +4,30 @@ import { IssueCard } from "./components/IssueCard";
 
 const PRIORITY_RANK: Record<string, number> = { high: 0, medium: 1, low: 2 };
 
+// Mirrors github.MAX_ISSUES in the backend; the tool clamps to it regardless.
+const MAX_ISSUES = 50;
+const DEFAULT_LIMIT = 5;
+
+const clampLimit = (n: number): number =>
+  Math.min(MAX_ISSUES, Math.max(1, Math.round(n) || 1));
+
+interface Target {
+  repo: string;
+  issueNumber?: number;
+  /** A count typed into the box, e.g. "owner/repo 20". */
+  typedLimit?: number;
+}
+
+/** Split the three accepted input forms apart so the count has one owner. */
+function parseTarget(raw: string): Target {
+  const text = raw.trim();
+  const single = text.match(/^(\S+?)#(\d+)$/);
+  if (single) return { repo: single[1], issueNumber: Number(single[2]) };
+  const withCount = text.match(/^(\S+)\s+(\d+)$/);
+  if (withCount) return { repo: withCount[1], typedLimit: Number(withCount[2]) };
+  return { repo: text };
+}
+
 function rank(card: Card): number {
   if (card.status === "pending") return 3;
   return PRIORITY_RANK[card.priority ?? "low"] ?? 2;
@@ -11,10 +35,15 @@ function rank(card: Card): number {
 
 export function App() {
   const [repo, setRepo] = useState("astropods/agents");
+  const [limit, setLimit] = useState(DEFAULT_LIMIT);
   const [state, setState] = useState<ScorerState>({ issues: {}, run: null });
   const [narration, setNarration] = useState("");
   const [running, setRunning] = useState(false);
   const [error, setError] = useState("");
+
+  const target = useMemo(() => parseTarget(repo), [repo]);
+  // Scoring one issue by number has nothing to count, so the picker is inert.
+  const singleIssue = target.issueNumber !== undefined;
 
   const cards = useMemo(() => {
     const list = Object.values(state.issues ?? {});
@@ -30,12 +59,29 @@ export function App() {
   }, [state]);
 
   async function run() {
-    if (!repo.trim() || running) return;
+    if (!target.repo || running) return;
+
+    // A count typed into the box ("owner/repo 20") still works, and is adopted
+    // into the picker rather than silently dropped — so what the UI shows always
+    // matches what was actually scored.
+    const effective = target.typedLimit
+      ? clampLimit(target.typedLimit)
+      : limit;
+    if (target.typedLimit) {
+      setLimit(effective);
+      setRepo(target.repo);
+    }
+
+    // State the count explicitly; the agent maps it onto the tool's `limit`.
+    const prompt = singleIssue
+      ? `Score issue ${target.repo}#${target.issueNumber}.`
+      : `Score the top ${effective} open issues in ${target.repo}.`;
+
     setError("");
     setNarration("");
     setState({ issues: {}, run: null, plan: null });
     setRunning(true);
-    await runTurn(`Score the open issues in ${repo.trim()}.`, {
+    await runTurn(prompt, {
       onState: setState,
       onNarration: setNarration,
       onFinished: () => setRunning(false),
@@ -83,11 +129,35 @@ export function App() {
             value={repo}
             onChange={(e) => setRepo(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && run()}
-            placeholder="owner/repo  ·  owner/repo 20  ·  owner/repo#123"
+            placeholder="owner/repo  ·  owner/repo#123"
             spellCheck={false}
           />
+          <label
+            className="app__limit"
+            title={
+              singleIssue
+                ? "Not used when scoring a single issue"
+                : `How many open issues to score (1–${MAX_ISSUES})`
+            }
+          >
+            <input
+              type="number"
+              min={1}
+              max={MAX_ISSUES}
+              value={limit}
+              disabled={singleIssue || running}
+              onChange={(e) => setLimit(clampLimit(Number(e.target.value)))}
+              onKeyDown={(e) => e.key === "Enter" && run()}
+              aria-label="Number of issues to score"
+            />
+            <span>issues</span>
+          </label>
           <button onClick={run} disabled={running}>
-            {running ? "Working…" : "Score issues"}
+            {running
+              ? "Working…"
+              : singleIssue
+                ? "Score issue"
+                : `Score ${limit}`}
           </button>
           <button className="btn-secondary" onClick={plan} disabled={!canPlan}>
             🧭 Plan top issues
