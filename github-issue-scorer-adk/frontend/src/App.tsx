@@ -92,28 +92,14 @@ export function App() {
     });
   }
 
-  async function plan() {
-    if (running) return;
-    setError("");
-    setRunning(true);
-    await runTurn(
-      "Create an action plan for the issues you just scored.",
-      {
-        onState: setState,
-        onNarration: setNarration,
-        onFinished: () => setRunning(false),
-        onError: (m) => {
-          setError(m);
-          setRunning(false);
-        },
-      },
-    );
-  }
-
   const run_ = state.run;
   const pct = run_ && run_.total ? Math.round((run_.done / run_.total) * 100) : 0;
-  const scoredCount = cards.filter((c) => c.status === "scored").length;
-  const canPlan = !running && run_?.status === "done" && scoredCount > 0;
+  // The "Plan top issues" button is deliberately absent — the demo doesn't
+  // include the planner agent. Everything behind it is intact (the
+  // create_action_plan tool, the A2A client, the PLANNER_A2A_URL input and the
+  // panel below), so restoring the button is the only change needed to re-enable
+  // it. The panel stays wired so a plan still renders if the tool is invoked by
+  // another AG-UI client on the same thread.
   const planState = state.plan;
 
   return (
@@ -158,9 +144,6 @@ export function App() {
               : singleIssue
                 ? "Score issue"
                 : `Score ${limit}`}
-          </button>
-          <button className="btn-secondary" onClick={plan} disabled={!canPlan}>
-            🧭 Plan top issues
           </button>
         </div>
       </header>

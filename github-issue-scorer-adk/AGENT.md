@@ -24,7 +24,6 @@ capabilities:
   - "Surface competitor mentions and workarounds buried in comment threads"
   - "Fill in a live board as each issue is scored, rather than waiting for a report"
   - "Score one issue by number, or up to 50 at a time"
-  - "Hand the scored backlog to a planner agent for a remediation plan"
 integrations:
   - GitHub
   - OpenAI
@@ -59,9 +58,6 @@ workaround, or mentioned they're evaluating a competitor, stops being invisible.
   user-discovered workarounds get pulled out of the thread. And when the agent
   detects one it couldn't cleanly quote, the card says so rather than showing
   nothing — a nudge to go read that thread yourself.
-- **An action plan on request** — hand the scored backlog to a companion planner
-  agent and get back a sequenced remediation plan. *(Optional; skip it and
-  everything else still works.)*
 
 ## Usage
 
@@ -74,8 +70,7 @@ the button.
 | A deeper sweep | Enter `vercel/next.js`, set the count to 20 |
 | One specific issue | Enter `rails/rails#50234` |
 
-You can also just talk to it — *"score the top 10 issues in ag-ui-protocol/ag-ui"*
-works, and so does *"now give me an action plan"* once it has finished.
+Cards appear as placeholders the moment a run starts, then resolve one at a time.
 
 Cards sort themselves highest-priority first, then by impact within each
 priority, so the list arrives in the order you should work through it.
