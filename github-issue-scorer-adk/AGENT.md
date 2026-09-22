@@ -1,15 +1,15 @@
 ---
-description: "Scores open GitHub issues for sentiment and priority using Jev for calibrated typed decisions and an LLM for the write-up, streamed live into a web dashboard. Built on Google ADK + the AG-UI protocol."
+description: "Triages a repo's open GitHub issues by priority and sentiment, streamed live into a dashboard — with a calibrated confidence on every score, from Jev."
 tags:
   - github
   - triage
   - scoring
-  - adk
-  - ag-ui
+  - product-management
+  - sentiment-analysis
   - dashboard
   - jev
-  - typesafe
-  - fabric-gateway
+  - ag-ui
+  - adk
 authors:
   - name: Simon Guerrier
     account: simon
@@ -18,13 +18,13 @@ repository:
   url: https://github.com/Simwar/astro-demo.git
   directory: github-issue-scorer-adk
 capabilities:
-  - "Score a repo's open GitHub issues by priority, sentiment, competitor mentions, and workarounds"
-  - "Score priority and sentiment with Jev, which cannot return an out-of-enum value"
-  - "Show a calibrated confidence per answer, flagged when low enough to warrant a human look"
-  - "Order issues within a priority bucket by a continuous severity score"
-  - "Flag workarounds and competitor mentions Jev detected but the write-up missed"
-  - "Stream each issue's score into a live dashboard as it's analyzed"
-  - "Score a single issue by number, or the top N (max 50)"
+  - "Triage a repo's open GitHub issues by priority, sentiment, and user impact"
+  - "Show how confident the model is in each score, and flag the shaky ones"
+  - "Rank issues by severity so the top of the list is the right place to start"
+  - "Surface competitor mentions and workarounds buried in comment threads"
+  - "Fill in a live board as each issue is scored, rather than waiting for a report"
+  - "Score one issue by number, or up to 50 at a time"
+  - "Hand the scored backlog to a planner agent for a remediation plan"
 integrations:
   - GitHub
   - OpenAI
@@ -32,53 +32,79 @@ integrations:
   - Postman Fabric Gateway
 ---
 
-# github-issue-scorer-adk
+# GitHub Issue Scorer
 
-An ADK + AG-UI recreation of the github-issue-scorer, with a live web dashboard.
-Give it a repository and it fetches the open issues and scores each one — a
-one-line summary, a sentiment read (frustration / urgency / neutral / positive),
-a priority (high / medium / low) with the reasoning, plus any competitor mentions
-and workarounds surfaced in the thread. Cards fill in one at a time as scoring
-streams over the AG-UI protocol.
+Your backlog has four hundred open issues and you have Tuesday afternoon. Which
+three actually matter?
 
-Scoring uses two models behind one gateway. Jev (TypeSafe's System One model)
-answers the typed questions and returns a calibrated confidence with each; it
-generates no text, so an out-of-enum priority is impossible. The LLM writes the
-summary and justifications. Both go through the Postman Fabric Gateway, which
-holds the upstream credentials — the agent stores none.
+Point this agent at a repository and it reads each open issue — the body and the
+whole comment thread — then fills a live board as it goes. Every card tells you
+how urgent the issue is, how the reporter feels about it, and how badly users are
+actually impacted. The frustrated thread where someone quietly posted a
+workaround, or mentioned they're evaluating a competitor, stops being invisible.
 
-## Architecture
+## What you get
 
-A single container runs one FastAPI process on port 80:
-
-- `POST /agui` — AG-UI SSE endpoint, served by `ag_ui_adk` in front of a Google
-  ADK `LlmAgent`.
-- `/` — the built React dashboard (static assets).
-
-Every model call runs through the **Postman Fabric Gateway**: the conversational
-loop and the per-issue prose call reach `gpt-4o-mini` on the gateway's
-OpenAI-compatible route via LiteLLM, and the typed scoring reaches `jev-latest`
-on its `/jev` route via `typesafe-sdk`. The gateway brokers the upstream auth, so
-the only credential here is `FABRIC_GATEWAY_KEY` — and the agent fails at startup
-without it rather than 401-ing on the first message. GitHub is reached over the
-REST API with the injected `GITHUB_TOKEN`.
-
-The dashboard updates live because the scoring tool writes each issue's result
-into ADK session **state**; `ag_ui_adk` emits that as AG-UI `STATE_SNAPSHOT` /
-`STATE_DELTA` events, which the frontend merges and renders.
+- **A board that fills in as it thinks** — cards appear immediately as
+  placeholders and resolve one by one, so you can start reading the first result
+  while the rest are still being scored.
+- **Scores you can calibrate your trust against** — every priority and sentiment
+  carries a confidence figure. Anything under 60% is highlighted, so a shaky
+  judgement invites a second look instead of sitting there looking authoritative.
+  Hover it for the full breakdown.
+- **A real ranking, not three buckets** — an impact score orders issues *within*
+  each priority, so the top of a `HIGH` run is genuinely where to start. Each
+  card says what its impact level means in plain words.
+- **The things a summary usually loses** — competitor comparisons and
+  user-discovered workarounds get pulled out of the thread. And when the agent
+  detects one it couldn't cleanly quote, the card says so rather than showing
+  nothing — a nudge to go read that thread yourself.
+- **An action plan on request** — hand the scored backlog to a companion planner
+  agent and get back a sequenced remediation plan. *(Optional; skip it and
+  everything else still works.)*
 
 ## Usage
 
-Open the frontend URL that `ast project start` prints. Enter a repository:
+Open the dashboard, type a repository, choose how many issues to score, and hit
+the button.
 
-- `owner/repo` — top 5 open issues
-- `owner/repo 20` — top N (max 50)
-- `owner/repo#123` — a single issue
+| You want | Do this |
+|---|---|
+| The 5 most recent open issues | Enter `pallets/flask`, leave the count at 5 |
+| A deeper sweep | Enter `vercel/next.js`, set the count to 20 |
+| One specific issue | Enter `rails/rails#50234` |
+
+You can also just talk to it — *"score the top 10 issues in astropods/agents"*
+works, and so does *"now give me an action plan"* once it has finished.
+
+Cards sort themselves highest-priority first, then by impact within each
+priority, so the list arrives in the order you should work through it.
+
+## How the scoring works
+
+Two models, each doing the half it is actually good at.
+
+**Jev** makes the judgements — priority, sentiment, and impact. It is a decision
+model rather than a chat model: it picks from a fixed set of answers and returns
+a probability for each, so it cannot invent a priority that doesn't exist or
+mangle its own output. That is where the confidence figures come from.
+
+**An LLM** does the writing — the summary, the reasoning behind each score, and
+pulling competitor names and workarounds out of the comments.
+
+They run at the same time, so you don't wait for both. If Jev is unavailable the
+agent keeps working and falls back to the LLM's own judgement; you'll just see
+the confidence and impact figures disappear from the cards.
 
 ## Limitations
 
-- **Read-only.** It analyzes issues; it never writes to GitHub.
-- **Per-token visibility.** It sees what the injected `GITHUB_TOKEN` can see.
-- **Long threads truncated.** Bodies are capped at ~2000 chars and comments at
-  ~500 to keep scoring fast and cheap.
-- **Demo-scoped session.** State is in-memory and resets on restart.
+- **Read-only.** It analyses issues; it never comments, labels, or closes
+  anything on GitHub.
+- **Open issues only.** Closed issues and pull requests are skipped.
+- **Up to 50 issues per run**, and it only sees what the connected GitHub
+  account can see — private repos need access.
+- **Very long threads get trimmed.** Issue bodies and individual comments are
+  truncated, and only the first 120 comments are scored, so a thousand-comment
+  epic will lose some nuance.
+- **Sessions don't persist.** Scores live as long as the page is open; reloading
+  starts fresh.
