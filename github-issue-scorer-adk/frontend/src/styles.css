@@ -128,3 +128,32 @@ body {
 }
 .shimmer:last-child { width: 60%; }
 @keyframes shimmer { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
+
+/* --- Jev-sourced signals: calibrated confidence + continuous severity ---- */
+
+.card__badges { display: inline-flex; align-items: center; gap: 8px; }
+
+/* Confidence rides alongside the value it qualifies, quiet by default and
+   amber only when it is low enough to be worth a second look. */
+.conf {
+  font: 600 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--muted); font-variant-numeric: tabular-nums;
+  cursor: help;
+}
+.conf--low { color: var(--medium); }
+.chip .conf { margin-left: 6px; opacity: 0.85; }
+
+/* Three segments matching the severity rubric's levels; explains why one card
+   outranks another inside the same priority bucket. */
+.sev { display: inline-flex; align-items: flex-end; gap: 2px; height: 11px; cursor: help; }
+.sev i {
+  display: block; width: 3px; height: 100%;
+  border-radius: 1px; background: var(--border);
+}
+.sev i:nth-child(1) { height: 55%; }
+.sev i:nth-child(2) { height: 78%; }
+.pri-high .sev i.sev__on { background: var(--high); }
+.pri-medium .sev i.sev__on { background: var(--medium); }
+.pri-low .sev i.sev__on { background: var(--low); }
+
+.card__meta--hint { color: var(--accent); opacity: 0.75; font-style: italic; }

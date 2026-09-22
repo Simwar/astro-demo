@@ -18,7 +18,15 @@ export function App() {
 
   const cards = useMemo(() => {
     const list = Object.values(state.issues ?? {});
-    return list.sort((a, b) => rank(a) - rank(b) || a.number - b.number);
+    // Priority bucket first, then Jev's continuous severity (descending) so
+    // ordering within a bucket is no longer arbitrary. Cards Jev did not score
+    // get -1 and sort last within their bucket; issue number is the final tiebreak.
+    return list.sort(
+      (a, b) =>
+        rank(a) - rank(b) ||
+        (b.severity ?? -1) - (a.severity ?? -1) ||
+        a.number - b.number,
+    );
   }, [state]);
 
   async function run() {
@@ -67,7 +75,8 @@ export function App() {
       <header className="app__header">
         <h1>🎯 GitHub Issue Scorer</h1>
         <p className="app__sub">
-          Sentiment &amp; priority triage, streamed live via ADK + AG-UI.
+          Typed scoring by Jev, write-up by the LLM — streamed live via ADK +
+          AG-UI, routed through the Fabric Gateway.
         </p>
         <div className="app__controls">
           <input

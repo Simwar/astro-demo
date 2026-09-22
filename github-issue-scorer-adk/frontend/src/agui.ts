@@ -4,6 +4,11 @@
 // + STATE_DELTA); the client merges deltas into `agent.state` automatically and
 // fires onStateChanged after each merge. We render from that. Assistant
 // narration arrives as TEXT_MESSAGE_CONTENT.
+//
+// Cards carry two kinds of field: typed answers from Jev (priority, sentiment,
+// severity, confidences) and prose from the LLM (summary, reasons, lists). The
+// Jev fields are optional because the backend falls back to the LLM's own enums
+// whenever Jev is unavailable.
 import { HttpAgent } from "@ag-ui/client";
 
 export interface IssueCard {
@@ -21,6 +26,16 @@ export interface IssueCard {
   workarounds?: string[];
   priority?: "high" | "medium" | "low";
   priority_reason?: string;
+  // Jev-sourced. Absent when Jev was disabled or unavailable and the card fell
+  // back to the LLM's own enums.
+  priority_confidence?: number;
+  sentiment_confidence?: number;
+  /** Continuous 0..2 impact score; breaks ties inside a priority bucket. */
+  severity?: number;
+  /** Jev saw a workaround, whether or not the write-up extracted one. */
+  workaround_signal?: boolean;
+  /** Jev saw a competitor mention, whether or not the write-up extracted one. */
+  competitor_signal?: boolean;
 }
 
 export interface RunState {

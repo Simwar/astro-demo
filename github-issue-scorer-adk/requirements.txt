@@ -7,6 +7,8 @@ litellm==1.74.3
 ag-ui-adk==0.7.0
 # Async HTTP for the GitHub REST client + per-issue await boundaries.
 httpx==0.28.1
+# TypeSafe Jev client for the typed half of the scoring (async client).
+typesafe-sdk==0.7.1
 # OTLP/HTTP span exporter for Astro telemetry (api/sdk come via google-adk).
 # Pinned to match the opentelemetry-api/sdk 1.42.1 that google-adk installs.
 opentelemetry-exporter-otlp-proto-http==1.42.1

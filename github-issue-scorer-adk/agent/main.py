@@ -9,6 +9,12 @@ from __future__ import annotations
 
 import os
 
+# Fail closed before anything else: every model call goes through the Fabric
+# Gateway, so a missing key is a startup error rather than a first-message 401.
+from .gateway import assert_configured
+
+assert_configured()
+
 # Initialise OpenTelemetry BEFORE importing the agent, so ADK's spans (and our
 # own) attach to the configured global provider from the very first request.
 from .telemetry import init_telemetry

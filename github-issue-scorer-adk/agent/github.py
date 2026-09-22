@@ -5,12 +5,17 @@ PRs), pull comments, ask the model for a strict-JSON analysis (sentiment,
 priority, competitor mentions, workarounds), and normalise defensively.
 
 GitHub access uses async httpx (GITHUB_TOKEN, injected by the platform).
-Scoring uses litellm against the same Astro gateway as the agent model, so
-there's one model path and one set of credentials.
+
+Scoring is split across two models, both reached through the Postman Fabric
+Gateway. Jev answers the typed questions (see jev.py) and cannot return an
+out-of-enum value; the LLM writes the prose. They run concurrently, so the
+wall-clock cost is the slower of the two rather than the sum, and Jev's answers
+override the LLM's where it answered.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -20,8 +25,9 @@ from typing import Any, Optional
 import httpx
 import litellm
 
+from . import gateway
+from . import jev
 from . import telemetry as tel
-from .model import GATEWAY_MODEL, gateway_base_url
 
 log = logging.getLogger("scorer")
 
@@ -196,9 +202,13 @@ def normalize_analysis(raw: Any) -> dict[str, Any]:
     }
 
 
-async def score_issue(issue: dict[str, Any], comments: list[str]) -> dict[str, Any]:
-    """Ask the model for a strict-JSON analysis of one issue (async -> its own
-    event boundary, which keeps STATE_DELTAs streaming one card at a time)."""
+async def _score_prose(issue: dict[str, Any], comments: list[str]) -> dict[str, Any]:
+    """Ask the LLM for a strict-JSON analysis of one issue.
+
+    Still asks for `priority` and `sentiment` as well as the prose fields. Those
+    cost a handful of tokens and are what the card falls back to whenever Jev
+    does not answer — which is why the defensive normalisation below stays.
+    """
     body = (issue.get("body") or "")[:BODY_TRUNC]
     joined_comments = "\n".join(f"- {c[:COMMENT_TRUNC]}" for c in comments)
     user_msg = (
@@ -212,17 +222,21 @@ async def score_issue(issue: dict[str, Any], comments: list[str]) -> dict[str, A
     # wouldn't be captured otherwise.
     with tel.get_tracer().start_as_current_span(f"score-issue-#{issue.get('number')}") as span:
         span.set_attribute(tel.OBS_TYPE, "generation")
-        span.set_attribute(tel.GEN_MODEL, GATEWAY_MODEL)
+        span.set_attribute(tel.GEN_MODEL, gateway.PROSE_MODEL)
         span.set_attribute(tel.OBS_INPUT, user_msg[:4000])
 
-        # NB: no response_format={"type":"json_object"}. Claude doesn't natively
-        # support OpenAI JSON mode; through the LiteLLM-proxy gateway that
-        # emulation returns an empty "{}" for every call. We instead instruct
-        # JSON in the prompt and parse tolerantly (_extract_json handles fences).
+        # Now that the prose model is an actual OpenAI model behind the gateway's
+        # /openai route, JSON mode works properly — the previous path went to
+        # Claude through a LiteLLM proxy, where the emulation returned an empty
+        # "{}" for every call. _extract_json below is kept anyway: it is no longer
+        # propping up the happy path, it is the last guard on the Jev-unavailable
+        # fallback, where a bad parse would cost a real priority.
         resp = await litellm.acompletion(
-            model=f"openai/{GATEWAY_MODEL}",
-            api_base=gateway_base_url(),
-            api_key=os.environ["ASTRO_GATEWAY_API_KEY"],
+            model=f"openai/{gateway.PROSE_MODEL}",
+            api_base=gateway.openai_base_url(),
+            api_key=gateway.BROKERED_BY_GATEWAY,
+            extra_headers=gateway.gateway_headers(),
+            response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": ANALYSIS_SYSTEM_PROMPT},
                 {"role": "user", "content": user_msg},
@@ -242,3 +256,27 @@ async def score_issue(issue: dict[str, Any], comments: list[str]) -> dict[str, A
     if not (isinstance(parsed, dict) and {k.lower() for k in parsed} & {"priority", "sentiment"}):
         log.warning("scoring: model output missing expected fields: %r", content[:400])
     return normalize_analysis(parsed)
+
+
+def merge_analysis(
+    prose: dict[str, Any], jev_scores: dict[str, Any] | None
+) -> dict[str, Any]:
+    """Jev's typed answers win over the LLM's for the fields it covers.
+
+    When Jev did not run — disabled, errored, or unusable — the LLM's own enums
+    are used unchanged. jev_scores only ever contains keys Jev is authoritative
+    for, so a plain overlay is the whole merge.
+    """
+    if not jev_scores:
+        return prose
+    return {**prose, **jev_scores}
+
+
+async def score_issue(issue: dict[str, Any], comments: list[str]) -> dict[str, Any]:
+    """Score one issue with both models concurrently (async -> its own event
+    boundary, which keeps STATE_DELTAs streaming one card at a time)."""
+    prose, jev_scores = await asyncio.gather(
+        _score_prose(issue, comments),
+        jev.score_issue(issue, comments),
+    )
+    return merge_analysis(prose, jev_scores)

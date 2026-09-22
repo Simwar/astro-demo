@@ -4,9 +4,10 @@ name: github-issue-scorer-adk
 meta: {}
 
 agent:
-  # OpenAI-compatible AI gateway: injects ASTRO_GATEWAY_URL + ASTRO_GATEWAY_API_KEY.
-  # The ADK LlmAgent reaches Claude through this via LiteLlm (see agent/model.py).
-  astro_ai_gateway: true
+  # No astro_ai_gateway and no models: block. Every model call goes through the
+  # Postman Fabric Gateway, which stores the upstream OpenAI and TypeSafe
+  # credentials and brokers auth, so this container holds no provider keys —
+  # only FABRIC_GATEWAY_KEY below. See agent/gateway.py.
   build:
     context: .
     dockerfile: Dockerfile
@@ -17,6 +18,21 @@ agent:
     # this agent has its own UI instead of the playground chat.
     frontend: true
   inputs:
+    # Sent as X-Gateway-Key on every model call. Required: the agent fails at
+    # startup without it rather than 401-ing on the first message. No default —
+    # the platform does not reliably apply defaults to secret inputs.
+    - name: FABRIC_GATEWAY_KEY
+      datatype: string
+      secret: true
+      description: "Postman Fabric Gateway key, sent as X-Gateway-Key on all model calls."
+    - name: FABRIC_GATEWAY_URL
+      datatype: string
+      default: https://gbadebo-bello-s-fabric-team-59d0b541.dp.fabricgateway.ai
+      description: "Fabric Gateway base URL."
+    - name: JEV_ENABLED
+      datatype: string
+      default: "1"
+      description: "Set to 0 to score with the LLM only, for comparison against Jev."
     # Public Launch URL of the action-planner-adk agent. The create_action_plan
     # tool calls it over A2A. Optional — planning is disabled if unset.
     - name: PLANNER_A2A_URL
