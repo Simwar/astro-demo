@@ -1,0 +1,244 @@
+"""GitHub REST access + per-issue LLM scoring.
+
+Ports the reference github-issue-scorer's logic: fetch open issues (excluding
+PRs), pull comments, ask the model for a strict-JSON analysis (sentiment,
+priority, competitor mentions, workarounds), and normalise defensively.
+
+GitHub access uses async httpx (GITHUB_TOKEN, injected by the platform).
+Scoring uses litellm against the same Astro gateway as the agent model, so
+there's one model path and one set of credentials.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import re
+from typing import Any, Optional
+
+import httpx
+import litellm
+
+from . import telemetry as tel
+from .model import GATEWAY_MODEL, gateway_base_url
+
+log = logging.getLogger("scorer")
+
+# --- Constants (mirror the reference agent) ---------------------------------
+MAX_ISSUES = 50
+BODY_TRUNC = 2000
+COMMENT_TRUNC = 500
+PRIORITY_ORDER = {"high": 0, "medium": 1, "low": 2}
+VALID_SENTIMENTS = {"frustration", "urgency", "neutral", "positive"}
+VALID_PRIORITIES = {"high", "medium", "low"}
+
+GITHUB_API = "https://api.github.com"
+
+ANALYSIS_SYSTEM_PROMPT = (
+    "You are a senior product manager triaging GitHub issues. For the single "
+    "issue provided (title, body, and comments), return ONLY a JSON object with "
+    "exactly these fields:\n"
+    '  "summary": one-sentence plain-language summary of the issue.\n'
+    '  "sentiment": one of "frustration", "urgency", "neutral", "positive".\n'
+    '  "sentiment_details": one short sentence justifying the sentiment.\n'
+    '  "competitive_mentions": array of competitor product names mentioned '
+    "(empty array if none).\n"
+    '  "workarounds": array of short strings describing any workarounds users '
+    "mention (empty array if none).\n"
+    '  "priority": one of "high", "medium", "low" — how urgently the product '
+    "team should act. Use HIGH for security vulnerabilities/CVEs, crashes, data "
+    "loss/corruption, or issues blocking many users; MEDIUM for meaningful bugs "
+    "or common friction with a workaround; LOW only for minor, cosmetic, or "
+    "edge-case issues. Distinguish across issues — do not rate everything low.\n"
+    '  "priority_reason": one short sentence explaining the priority.\n'
+    "Base every field only on the issue content. Do not invent facts. Use "
+    "lowercase for the sentiment and priority values. Respond with the JSON "
+    "object and nothing else — no markdown, no code fences."
+)
+
+
+def _headers() -> dict[str, str]:
+    headers = {"Accept": "application/vnd.github+json"}
+    token = os.environ.get("GITHUB_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
+def _reactions(issue: dict[str, Any]) -> dict[str, int]:
+    r = issue.get("reactions") or {}
+    return {
+        "upvotes": int(r.get("+1", 0)),
+        "total_reactions": int(r.get("total_count", 0)),
+        "comments": int(issue.get("comments", 0)),
+    }
+
+
+async def fetch_open_issues(
+    client: httpx.AsyncClient,
+    owner: str,
+    repo: str,
+    issue_number: Optional[int],
+    limit: int,
+) -> list[dict[str, Any]]:
+    """Return raw issue payloads (PRs excluded). Single issue if issue_number set."""
+    if issue_number is not None:
+        resp = await client.get(
+            f"{GITHUB_API}/repos/{owner}/{repo}/issues/{issue_number}",
+            headers=_headers(),
+        )
+        resp.raise_for_status()
+        return [resp.json()]
+
+    cap = max(1, min(limit, MAX_ISSUES))
+    out: list[dict[str, Any]] = []
+    page = 1
+    while len(out) < cap:
+        resp = await client.get(
+            f"{GITHUB_API}/repos/{owner}/{repo}/issues",
+            headers=_headers(),
+            params={"state": "open", "per_page": 100, "page": page},
+        )
+        resp.raise_for_status()
+        batch = resp.json()
+        if not batch:
+            break
+        # Exclude pull requests (they surface on the issues endpoint too).
+        out.extend(i for i in batch if "pull_request" not in i)
+        page += 1
+    return out[:cap]
+
+
+async def fetch_comments(
+    client: httpx.AsyncClient, owner: str, repo: str, number: int
+) -> list[str]:
+    resp = await client.get(
+        f"{GITHUB_API}/repos/{owner}/{repo}/issues/{number}/comments",
+        headers=_headers(),
+        params={"per_page": 100},
+    )
+    if resp.status_code != 200:
+        return []
+    return [c.get("body", "") for c in resp.json()]
+
+
+def _extract_json(content: str) -> dict[str, Any]:
+    """Parse the model's JSON tolerantly.
+
+    Models routed through the gateway don't always honour response_format: they
+    may wrap the object in ```json fences or add prose around it. Try a straight
+    parse, then a fenced block, then the first balanced {...} span.
+    """
+    if not content:
+        return {}
+    try:
+        return json.loads(content)
+    except (json.JSONDecodeError, TypeError):
+        pass
+    fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", content, re.DOTALL)
+    if fenced:
+        try:
+            return json.loads(fenced.group(1))
+        except json.JSONDecodeError:
+            pass
+    span = re.search(r"\{.*\}", content, re.DOTALL)
+    if span:
+        try:
+            return json.loads(span.group(0))
+        except json.JSONDecodeError:
+            pass
+    log.warning("scoring: could not parse JSON from model output: %r", content[:300])
+    return {}
+
+
+def _coerce_enum(value: Any, valid: set[str], default: str, field: str) -> str:
+    """Match enum values case-insensitively (the model often returns 'High',
+    'Frustration', etc.). Log when we fall back so misses are visible in logs."""
+    if isinstance(value, str):
+        token = value.strip().lower()
+        if token in valid:
+            return token
+        # e.g. "high priority" / "urgent" -> pick the valid token it contains.
+        for v in valid:
+            if v in token:
+                return v
+    log.warning("scoring: %s=%r not in %s; defaulting to %s", field, value, valid, default)
+    return default
+
+
+def normalize_analysis(raw: Any) -> dict[str, Any]:
+    """Defensive defaults so a malformed model response never breaks a card."""
+    # Lower-case top-level keys: models often return "Priority"/"Sentiment"
+    # (capitalised) even when the schema uses lowercase, which would otherwise
+    # miss every case-sensitive .get() and default the whole card.
+    data = (
+        {k.lower(): v for k, v in raw.items() if isinstance(k, str)}
+        if isinstance(raw, dict)
+        else {}
+    )
+    return {
+        "summary": data.get("summary") or "(no summary)",
+        "sentiment": _coerce_enum(
+            data.get("sentiment"), VALID_SENTIMENTS, "neutral", "sentiment"
+        ),
+        "sentiment_details": data.get("sentiment_details") or "",
+        "competitive_mentions": data.get("competitive_mentions")
+        if isinstance(data.get("competitive_mentions"), list)
+        else [],
+        "workarounds": data.get("workarounds")
+        if isinstance(data.get("workarounds"), list)
+        else [],
+        "priority": _coerce_enum(
+            data.get("priority"), VALID_PRIORITIES, "low", "priority"
+        ),
+        "priority_reason": data.get("priority_reason") or "",
+    }
+
+
+async def score_issue(issue: dict[str, Any], comments: list[str]) -> dict[str, Any]:
+    """Ask the model for a strict-JSON analysis of one issue (async -> its own
+    event boundary, which keeps STATE_DELTAs streaming one card at a time)."""
+    body = (issue.get("body") or "")[:BODY_TRUNC]
+    joined_comments = "\n".join(f"- {c[:COMMENT_TRUNC]}" for c in comments)
+    user_msg = (
+        f"Title: {issue.get('title', '')}\n\n"
+        f"Body:\n{body}\n\n"
+        f"Comments:\n{joined_comments or '(none)'}"
+    )
+
+    # Trace each scoring call as a generation so token usage/cost land in the
+    # platform's run view. These are direct LiteLLM calls (outside ADK), so they
+    # wouldn't be captured otherwise.
+    with tel.get_tracer().start_as_current_span(f"score-issue-#{issue.get('number')}") as span:
+        span.set_attribute(tel.OBS_TYPE, "generation")
+        span.set_attribute(tel.GEN_MODEL, GATEWAY_MODEL)
+        span.set_attribute(tel.OBS_INPUT, user_msg[:4000])
+
+        # NB: no response_format={"type":"json_object"}. Claude doesn't natively
+        # support OpenAI JSON mode; through the LiteLLM-proxy gateway that
+        # emulation returns an empty "{}" for every call. We instead instruct
+        # JSON in the prompt and parse tolerantly (_extract_json handles fences).
+        resp = await litellm.acompletion(
+            model=f"openai/{GATEWAY_MODEL}",
+            api_base=gateway_base_url(),
+            api_key=os.environ["ASTRO_GATEWAY_API_KEY"],
+            messages=[
+                {"role": "system", "content": ANALYSIS_SYSTEM_PROMPT},
+                {"role": "user", "content": user_msg},
+            ],
+            max_tokens=700,
+        )
+        content = resp["choices"][0]["message"]["content"]
+        span.set_attribute(tel.OBS_OUTPUT, (content or "")[:4000])
+        usage = getattr(resp, "usage", None)
+        if usage is not None:
+            span.set_attribute(tel.GEN_IN_TOKENS, getattr(usage, "prompt_tokens", 0) or 0)
+            span.set_attribute(tel.GEN_OUT_TOKENS, getattr(usage, "completion_tokens", 0) or 0)
+
+    parsed = _extract_json(content)
+    # If the expected fields still aren't present (nesting, renamed keys, etc.),
+    # surface the raw output so the actual shape is visible in the logs.
+    if not (isinstance(parsed, dict) and {k.lower() for k in parsed} & {"priority", "sentiment"}):
+        log.warning("scoring: model output missing expected fields: %r", content[:400])
+    return normalize_analysis(parsed)

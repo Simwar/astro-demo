@@ -1,0 +1,12 @@
+# Pinned: everything except google-adk is pre-1.0 and the API churns across
+# releases, so pin exactly and bump deliberately.
+google-adk==2.3.0
+# LiteLlm imports litellm lazily; it isn't pulled in automatically.
+litellm==1.74.3
+# AG-UI <-> ADK bridge. Pulls fastapi, uvicorn, sse-starlette, ag-ui-protocol.
+ag-ui-adk==0.7.0
+# Async HTTP for the GitHub REST client + per-issue await boundaries.
+httpx==0.28.1
+# OTLP/HTTP span exporter for Astro telemetry (api/sdk come via google-adk).
+# Pinned to match the opentelemetry-api/sdk 1.42.1 that google-adk installs.
+opentelemetry-exporter-otlp-proto-http==1.42.1

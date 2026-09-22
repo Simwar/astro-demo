@@ -1,0 +1,35 @@
+# yaml-language-server: $schema=https://astropods.com/schema/package.json
+spec: package/v1
+name: github-issue-scorer-adk
+meta: {}
+
+agent:
+  # OpenAI-compatible AI gateway: injects ASTRO_GATEWAY_URL + ASTRO_GATEWAY_API_KEY.
+  # The ADK LlmAgent reaches Claude through this via LiteLlm (see agent/model.py).
+  astro_ai_gateway: true
+  build:
+    context: .
+    dockerfile: Dockerfile
+  interfaces:
+    # frontend exposes an HTTP endpoint: Astro injects PORT=80 and routes the
+    # public host (443) -> container :80, where FastAPI serves both the AG-UI
+    # SSE endpoint (/agui) and the static React dashboard. No messaging sidecar:
+    # this agent has its own UI instead of the playground chat.
+    frontend: true
+  inputs:
+    # Public Launch URL of the action-planner-adk agent. The create_action_plan
+    # tool calls it over A2A. Optional — planning is disabled if unset.
+    - name: PLANNER_A2A_URL
+      datatype: string
+      description: "A2A base URL of the action-planner agent (its Launch URL)."
+
+integrations:
+  # Injects GITHUB_TOKEN into the container for GitHub REST access.
+  github:
+    provider: github
+
+dev:
+  interfaces:
+    # Local frontend port (prod always uses :80). uvicorn binds this in dev.
+    frontend:
+      port: 8808
