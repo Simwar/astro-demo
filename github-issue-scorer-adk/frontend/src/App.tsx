@@ -34,7 +34,7 @@ function rank(card: Card): number {
 }
 
 export function App() {
-  const [repo, setRepo] = useState("astropods/agents");
+  const [repo, setRepo] = useState("ag-ui-protocol/ag-ui");
   const [limit, setLimit] = useState(DEFAULT_LIMIT);
   const [state, setState] = useState<ScorerState>({ issues: {}, run: null });
   const [narration, setNarration] = useState("");

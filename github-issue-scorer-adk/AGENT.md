@@ -74,7 +74,7 @@ the button.
 | A deeper sweep | Enter `vercel/next.js`, set the count to 20 |
 | One specific issue | Enter `rails/rails#50234` |
 
-You can also just talk to it — *"score the top 10 issues in astropods/agents"*
+You can also just talk to it — *"score the top 10 issues in ag-ui-protocol/ag-ui"*
 works, and so does *"now give me an action plan"* once it has finished.
 
 Cards sort themselves highest-priority first, then by impact within each
