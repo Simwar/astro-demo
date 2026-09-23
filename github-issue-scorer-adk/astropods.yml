@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://astropods.com/schema/package.json
 spec: package/v1
-name: github-issue-scorer-adk
+name: github-issue-scorer-jev
 meta: {}
 
 agent:
@@ -29,17 +29,14 @@ agent:
       description: "Postman Fabric Gateway key, used for both the openai and jev routes."
     - name: FABRIC_GATEWAY_URL
       datatype: string
-      default: https://gbadebo-bello-s-fabric-team-59d0b541.dp.fabricgateway.ai
       description: "Fabric Gateway base URL."
     - name: JEV_ENABLED
       datatype: string
       default: "1"
       description: "Set to 0 to score with the LLM only, for comparison against Jev."
-    # Public Launch URL of the action-planner-adk agent. The create_action_plan
-    # tool calls it over A2A. Optional — planning is disabled if unset.
-    - name: PLANNER_A2A_URL
-      datatype: string
-      description: "A2A base URL of the action-planner agent (its Launch URL)."
+    # The create_action_plan tool is still registered and still works over A2A,
+    # but nothing in the dashboard surfaces it, so PLANNER_A2A_URL is not declared
+    # here. Re-add it as a plain string input to re-enable planning.
 
 integrations:
   # Injects GITHUB_TOKEN into the container for GitHub REST access.
