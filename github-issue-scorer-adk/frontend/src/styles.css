@@ -1,0 +1,201 @@
+:root {
+  --bg: #0d1117;
+  --panel: #161b22;
+  --border: #30363d;
+  --text: #e6edf3;
+  --muted: #8b949e;
+  --accent: #58a6ff;
+  --high: #f85149;
+  --medium: #d29922;
+  --low: #3fb950;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: radial-gradient(1200px 600px at 50% -10%, #1b2430 0%, var(--bg) 60%);
+  color: var(--text);
+  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.app { max-width: 1100px; margin: 0 auto; padding: 40px 24px 80px; }
+
+.app__header h1 { margin: 0; font-size: 30px; }
+.app__sub { color: var(--muted); margin: 6px 0 20px; }
+
+.app__controls { display: flex; gap: 10px; }
+.app__controls input {
+  flex: 1; padding: 12px 14px; border-radius: 10px;
+  background: var(--panel); border: 1px solid var(--border);
+  color: var(--text); font-size: 15px; outline: none;
+}
+.app__controls input:focus { border-color: var(--accent); }
+.app__controls button {
+  padding: 12px 22px; border-radius: 10px; border: 0; cursor: pointer;
+  background: var(--accent); color: #04121f; font-weight: 600; font-size: 15px;
+}
+.app__controls button:disabled { opacity: 0.5; cursor: default; }
+.app__controls .btn-secondary {
+  background: transparent; color: var(--text);
+  border: 1px solid var(--border);
+}
+.app__controls .btn-secondary:not(:disabled):hover { border-color: var(--accent); color: var(--accent); }
+
+.plan {
+  margin-top: 24px; background: var(--panel); border: 1px solid var(--border);
+  border-radius: 14px; padding: 18px 20px;
+}
+.plan__title { margin: 0 0 10px; font-size: 18px; }
+.plan__by { color: var(--muted); font-weight: 400; font-size: 13px; }
+.plan__pending { color: var(--muted); font-style: italic; }
+.plan__body {
+  margin: 0; white-space: pre-wrap; word-wrap: break-word;
+  font: 13.5px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text);
+}
+
+.progress {
+  position: relative; height: 26px; margin: 22px 0 4px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  overflow: hidden;
+}
+.progress__bar {
+  height: 100%; background: linear-gradient(90deg, #1f6feb, var(--accent));
+  transition: width 0.4s ease;
+}
+.progress__label {
+  position: absolute; inset: 0; display: flex; align-items: center;
+  justify-content: center; font-size: 12px; color: var(--text);
+}
+
+.narration {
+  color: var(--muted); font-style: italic; margin: 14px 2px;
+  border-left: 3px solid var(--border); padding-left: 12px;
+}
+.error { color: var(--high); }
+.empty { color: var(--muted); text-align: center; margin-top: 60px; }
+
+.grid {
+  margin-top: 22px; display: grid; gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+}
+
+.card {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 14px; padding: 16px 18px; border-left-width: 4px;
+  animation: rise 0.3s ease;
+}
+.card.pri-high { border-left-color: var(--high); }
+.card.pri-medium { border-left-color: var(--medium); }
+.card.pri-low { border-left-color: var(--low); }
+.card--pending { opacity: 0.85; border-left-color: var(--border); }
+
+@keyframes rise { from { transform: translateY(6px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+.card__top { display: flex; justify-content: space-between; align-items: center; }
+.card__num { color: var(--muted); text-decoration: none; font-variant-numeric: tabular-nums; }
+.card__num:hover { color: var(--accent); }
+.card__title { margin: 8px 0 10px; font-size: 16px; }
+.card__summary { margin: 0 0 8px; }
+.card__reason { margin: 0 0 10px; color: var(--muted); font-size: 13px; }
+.card__meta { margin: 6px 0 0; font-size: 13px; color: var(--muted); }
+
+.badge {
+  text-transform: uppercase; font-size: 11px; font-weight: 700;
+  letter-spacing: 0.04em; padding: 3px 9px; border-radius: 999px;
+  background: var(--border); color: var(--text);
+}
+.badge--high { background: rgba(248, 81, 73, 0.18); color: var(--high); }
+.badge--medium { background: rgba(210, 153, 34, 0.18); color: var(--medium); }
+.badge--low { background: rgba(63, 185, 80, 0.18); color: var(--low); }
+
+.card__chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.chip {
+  font-size: 12px; padding: 3px 9px; border-radius: 999px;
+  background: var(--border); color: var(--text);
+}
+.chip--muted { color: var(--muted); }
+.chip--frustration { background: rgba(248, 81, 73, 0.16); color: var(--high); }
+.chip--urgency { background: rgba(210, 153, 34, 0.16); color: var(--medium); }
+.chip--positive { background: rgba(63, 185, 80, 0.16); color: var(--low); }
+.chip--neutral { background: var(--border); color: var(--muted); }
+
+.card__skeleton { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+.shimmer {
+  height: 12px; border-radius: 6px;
+  background: linear-gradient(90deg, #21262d 25%, #2d333b 37%, #21262d 63%);
+  background-size: 400% 100%; animation: shimmer 1.4s ease infinite;
+}
+.shimmer:last-child { width: 60%; }
+@keyframes shimmer { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
+
+/* --- Jev-sourced signals: calibrated confidence + continuous severity ---- */
+
+.card__badges { display: inline-flex; align-items: center; gap: 8px; }
+
+/* Confidence rides alongside the value it qualifies, quiet by default and
+   amber only when it is low enough to be worth a second look. */
+.conf {
+  font: 600 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--muted); font-variant-numeric: tabular-nums;
+  cursor: help;
+}
+.conf--low { color: var(--medium); }
+.chip .conf { margin-left: 6px; opacity: 0.85; }
+
+/* Three segments matching the severity rubric's levels; explains why one card
+   outranks another inside the same priority bucket. */
+.sev { display: inline-flex; align-items: flex-end; gap: 2px; height: 11px; cursor: help; }
+.sev i {
+  display: block; width: 3px; height: 100%;
+  border-radius: 1px; background: var(--border);
+}
+.sev i:nth-child(1) { height: 55%; }
+.sev i:nth-child(2) { height: 78%; }
+.pri-high .sev i.sev__on { background: var(--high); }
+.pri-medium .sev i.sev__on { background: var(--medium); }
+.pri-low .sev i.sev__on { background: var(--low); }
+
+.card__meta--hint { color: var(--accent); opacity: 0.75; font-style: italic; }
+
+/* Issue-count picker: sits between the repo field and the action button, and
+   reads as one unit with the "issues" suffix rather than a bare number box. */
+.app__limit {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 0 14px 0 12px; border-radius: 10px;
+  background: var(--panel); border: 1px solid var(--border);
+  color: var(--muted); font-size: 13px; white-space: nowrap;
+}
+.app__limit:focus-within { border-color: var(--accent); }
+.app__limit input {
+  width: 3.2ch; padding: 12px 0; border: 0; background: transparent;
+  color: var(--text); font-size: 15px; font-variant-numeric: tabular-nums;
+  text-align: right; outline: none; -moz-appearance: textfield;
+}
+.app__limit input::-webkit-outer-spin-button,
+.app__limit input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.app__limit:has(input:disabled) { opacity: 0.45; }
+
+/* Styled tooltip via data-tip. The native `title` attribute was too slow to
+   appear and easy to miss, and it can't render a multi-line distribution. */
+.tip { position: relative; cursor: help; }
+.tip::after {
+  content: attr(data-tip);
+  position: absolute; bottom: calc(100% + 8px); left: 50%;
+  transform: translateX(-50%) translateY(3px);
+  width: max-content; max-width: 260px;
+  padding: 8px 10px; border-radius: 8px;
+  background: #07090d; border: 1px solid var(--border);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  color: var(--text); text-align: left;
+  font: 400 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0; text-transform: none; white-space: pre-line;
+  opacity: 0; visibility: hidden; pointer-events: none; z-index: 20;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+.tip:hover::after,
+.tip:focus-visible::after {
+  opacity: 1; visibility: visible; transform: translateX(-50%) translateY(0);
+}
+/* Widen the hover target: three 3px bars are a fiddly thing to aim at. */
+.sev { padding: 3px 2px; }

@@ -1,0 +1,50 @@
+# yaml-language-server: $schema=https://astropods.com/schema/package.json
+spec: package/v1
+name: github-issue-scorer-jev
+meta: {}
+
+agent:
+  # No astro_ai_gateway and no models: block. Every model call goes through the
+  # Postman Fabric Gateway, which stores the upstream OpenAI and TypeSafe
+  # credentials and brokers auth, so this container holds no provider keys —
+  # only FABRIC_GATEWAY_KEY below. See agent/gateway.py.
+  build:
+    context: .
+    dockerfile: Dockerfile
+  interfaces:
+    # frontend exposes an HTTP endpoint: Astro injects PORT=80 and routes the
+    # public host (443) -> container :80, where FastAPI serves both the AG-UI
+    # SSE endpoint (/agui) and the static React dashboard. No messaging sidecar:
+    # this agent has its own UI instead of the playground chat.
+    frontend: true
+  inputs:
+    # One key, but the two routes want it in different headers: /openai reads
+    # X-Gateway-Key while /jev reads Authorization: Bearer, and each 401s on the
+    # other. See agent/gateway.py. Required: the agent fails at startup without
+    # it rather than 401-ing on the first message. No default — the platform
+    # does not reliably apply defaults to secret inputs.
+    - name: FABRIC_GATEWAY_KEY
+      datatype: string
+      secret: true
+      description: "Postman Fabric Gateway key, used for both the openai and jev routes."
+    - name: FABRIC_GATEWAY_URL
+      datatype: string
+      description: "Fabric Gateway base URL."
+    - name: JEV_ENABLED
+      datatype: string
+      default: "1"
+      description: "Set to 0 to score with the LLM only, for comparison against Jev."
+    # The create_action_plan tool is still registered and still works over A2A,
+    # but nothing in the dashboard surfaces it, so PLANNER_A2A_URL is not declared
+    # here. Re-add it as a plain string input to re-enable planning.
+
+integrations:
+  # Injects GITHUB_TOKEN into the container for GitHub REST access.
+  github:
+    provider: github
+
+dev:
+  interfaces:
+    # Local frontend port (prod always uses :80). uvicorn binds this in dev.
+    frontend:
+      port: 8808
